@@ -1,0 +1,1014 @@
+{
+  "info": {
+    "name": "Salesforce · Formulários dinâmicos (fonte Custom)",
+    "_postman_id": "9f2a1c40-5f1e-4c3a-9d21-7f4b2c8ad001",
+    "description": "As chamadas que montam e submetem um formulário dinâmico a partir de `SI_FormSpec__c`.\n\nA coleção roda **de cima para baixo**: cada pasta grava nas variáveis o que a próxima precisa. Rode `00 · Autenticação` primeiro e depois use o Collection Runner, ou dispare uma a uma na ordem.\n\n### Antes de começar\n\nPreencha o *environment* `Scratch org`:\n\n| variável | onde achar |\n| :-- | :-- |\n| `loginUrl` | `https://test.salesforce.com` para sandbox/scratch, `https://login.salesforce.com` para produção |\n| `clientId` / `clientSecret` | External Client App na org, com Client Credentials habilitado |\n| `instanceUrl` | preenchido automaticamente pela autenticação |\n\nComo atalho, dá para pular o OAuth e colar um token direto em `accessToken` + `instanceUrl`:\n\n```\nsf org auth show-access-token --no-prompt --json -o <alias>\n```\n\n> `sf org display` **não** serve: ele devolve o token como `[REDACTED]`.\n\n### Pastas\n\n- **00** autenticação e identidade\n- **01** as quatro chamadas que montam um formulário\n- **02** o envio, com e sem registros filhos\n- **03** o BFF — o contrato normalizado, que é o que os canais consomem\n- **04** alternativas medidas, incluindo as que **falham de propósito**\n- **05** diagnóstico\n\nPesos e tempos citados nas descrições foram medidos numa scratch org com `Case` em 397 campos criáveis.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Falhar cedo e com mensagem útil é melhor que um 401 sem contexto.",
+          "const url = pm.request.url.toString();",
+          "if (!url.includes('oauth2/token') && !url.includes('bffUrl')) {",
+          "  const faltando = ['instanceUrl', 'accessToken'].filter((v) => !pm.variables.get(v));",
+          "  if (faltando.length) console.warn('Sem ' + faltando.join(' e ') + ' — rode a pasta 00 primeiro.');",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "apiVersion",
+      "value": "66.0",
+      "description": "Versão da API REST. A POC usa 66.0."
+    },
+    {
+      "key": "objectApiName",
+      "value": "Case",
+      "description": "Objeto que o formulário cria."
+    },
+    {
+      "key": "specObject",
+      "value": "SI_FormSpec__c",
+      "description": "Objeto que guarda a definição."
+    },
+    {
+      "key": "bffUrl",
+      "value": "http://localhost:3000",
+      "description": "Onde o BFF está rodando."
+    },
+    {
+      "key": "instanceUrl",
+      "value": "",
+      "description": "Preenchido pela autenticação."
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "description": "Preenchido pela autenticação."
+    },
+    {
+      "key": "formId",
+      "value": "",
+      "description": "Preenchido pela chamada 01."
+    },
+    {
+      "key": "recordTypeDevName",
+      "value": "",
+      "description": "Preenchido pela chamada 02."
+    },
+    {
+      "key": "recordTypeId",
+      "value": "",
+      "description": "Preenchido pela chamada 03."
+    }
+  ],
+  "item": [
+    {
+      "name": "00 · Autenticação",
+      "description": "O BFF fala com a org **como aplicação**, sem usuário no meio.\n\nO usuário “Run As” do External Client App importa mais do que parece: é o FLS dele que decide quais campos as chamadas conseguem ler e gravar. Campo invisível para ele volta como `No such column` — a mensagem não diz nada sobre permissão, e é fácil concluir que o campo não existe.",
+      "item": [
+        {
+          "name": "Obter token · Client Credentials",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Environment vence collection na resolução do Postman. Como o environment",
+                  "// de exemplo declara estas chaves vazias, gravar só na coleção faria a",
+                  "// requisição seguinte ler string vazia — escreve-se onde vai ser lido.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "if (j.access_token) {",
+                  "  guardar('accessToken', j.access_token);",
+                  "  guardar('instanceUrl', String(j.instance_url).replace(/\\/$/, ''));",
+                  "  console.log('instanceUrl = ' + j.instance_url);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{clientId}}"
+                },
+                {
+                  "key": "client_secret",
+                  "value": "{{clientSecret}}"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{loginUrl}}/services/oauth2/token",
+              "host": [
+                "{{loginUrl}}"
+              ],
+              "path": [
+                "services",
+                "oauth2",
+                "token"
+              ]
+            },
+            "description": "Grava `accessToken` e `instanceUrl` nas variáveis da coleção.\n\nSe preferir usar um token da CLI, pule esta chamada e preencha as duas variáveis à mão."
+          }
+        },
+        {
+          "name": "Quem sou eu",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/chatter/users/me",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "chatter",
+                "users",
+                "me"
+              ]
+            },
+            "description": "Com qual identidade a coleção está falando com a org. Vale conferir antes de investigar um `No such column`: quase sempre o campo existe e é o FLS deste usuário que não o enxerga."
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 · Montar o formulário",
+      "description": "As quatro chamadas, na ordem real.\n\nA **01** acontece uma vez, ao abrir a aplicação — traz o schema do objeto e o catálogo de formulários juntos. As **02 a 04** acontecem a cada formulário escolhido.\n\nTotal medido: **470 KB, ~2,0 s**. Noventa por cento do peso está em duas chamadas de schema; a definição do formulário custa 48,9 KB.",
+      "item": [
+        {
+          "name": "01 · Metadado dos campos + catálogo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Environment vence collection na resolução do Postman. Como o environment",
+                  "// de exemplo declara estas chaves vazias, gravar só na coleção faria a",
+                  "// requisição seguinte ler string vazia — escreve-se onde vai ser lido.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json().results || [];",
+                  "",
+                  "const campos = r[0]?.result?.records || [];",
+                  "const deps = r[1]?.result?.records || [];",
+                  "const catalogo = r[2]?.result?.records || [];",
+                  "console.log(`campos: ${campos.length} · dependentes: ${deps.length} · formulários: ${catalogo.length}`);",
+                  "",
+                  "// O ControllingFieldDefinitionId aponta para o DurableId de OUTRO campo;",
+                  "// o índice sai do próprio schema, que já traz a coluna. Custo zero.",
+                  "const porDurable = {};",
+                  "for (const c of campos) if (c.DurableId) porDurable[c.DurableId] = c.QualifiedApiName;",
+                  "for (const d of deps) {",
+                  "  console.log(`  ${d.QualifiedApiName} ← controlado por ${porDurable[d.ControllingFieldDefinitionId] || d.ControllingFieldDefinitionId}`);",
+                  "}",
+                  "",
+                  "if (catalogo.length) {",
+                  "  guardar('formId', catalogo[0].Id);",
+                  "  console.log('formId = ' + catalogo[0].Id + ' (' + catalogo[0].Name + ')');",
+                  "}",
+                  "",
+                  "pm.test('as três subrequisições responderam 200', () => {",
+                  "  pm.expect(r.map((x) => x.statusCode)).to.eql([200, 200, 200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"batchRequests\": [\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/query?q=SELECT QualifiedApiName, Label, DataType, Length, Precision, Scale, IsNillable, IsCalculated, InlineHelpText, IsDependentPicklist, IsCreatable, IsUpdatable, DurableId FROM EntityParticle WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND IsCreatable = true\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/query?q=SELECT DurableId, QualifiedApiName, ControllingFieldDefinitionId FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND ControllingFieldDefinitionId != null\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/query?q=SELECT Id, Name, PublicLabel__c, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c FROM {{specObject}} WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/composite/batch",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "composite",
+                "batch"
+              ]
+            },
+            "description": "**160,6 KB · 492 ms** — três subrequisições numa viagem só.\n\n1. `EntityParticle` — o schema dos campos: rótulo, tipo, tamanho, ajuda, obrigatoriedade no objeto e FLS do usuário corrente. **159,9 KB**\n2. `FieldDefinition` — quais picklists são dependentes e qual campo controla cada uma. **0,3 KB**\n3. `SI_FormSpec__c` — o catálogo: as linhas com Record Type `Form`. **0,3 KB**\n\n### Por que não `ui-api/object-info`\n\nO `object-info` devolve **todos** os campos com 36 atributos cada — 377,5 KB nesta org — e a UI API não aceita filtro de campo nem de coluna. `EntityParticle` é SOQL comum: escolhe as colunas e, por ser SOQL, cabe no mesmo composite do catálogo.\n\n### Por que a segunda subrequisição existe\n\nNem `EntityParticle` nem `picklist-values` entregam o **nome** do campo controlador de uma picklist dependente. O primeiro só marca `IsDependentPicklist`; o segundo devolve `controllerValues` sem nomear quem controla.\n\n`FieldDefinition.ControllingFieldDefinitionId` aponta para o `DurableId` de outro campo — e o `DurableId` já vem na primeira subrequisição. O script de teste faz o cruzamento e imprime os pares no console.\n\n> `FieldDefinition` **não** expõe `InlineHelpText` e `EntityParticle` **não** expõe `ControllingFieldDefinitionId`. Nenhum dos dois resolve sozinho — daí as duas consultas.\n\n### Por que o catálogo vem aqui\n\nPorque é ele que alimenta o seletor. Sem catálogo não há formulário para escolher, e o `formId` das chamadas seguintes sai daqui.\n\nGrava `formId` com o primeiro formulário do catálogo."
+          }
+        },
+        {
+          "name": "02 · A especificação do formulário",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Environment vence collection na resolução do Postman. Como o environment",
+                  "// de exemplo declara estas chaves vazias, gravar só na coleção faria a",
+                  "// requisição seguinte ler string vazia — escreve-se onde vai ser lido.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const linhas = pm.response.json().records || [];",
+                  "",
+                  "const porTipo = {};",
+                  "for (const l of linhas) {",
+                  "  const t = l.RecordType?.DeveloperName || '?';",
+                  "  porTipo[t] = (porTipo[t] || 0) + 1;",
+                  "}",
+                  "console.log(`${linhas.length} linhas: ` + JSON.stringify(porTipo));",
+                  "",
+                  "const raiz = linhas.find((l) => l.RecordType?.DeveloperName === 'Form');",
+                  "pm.test('a raiz veio junto', () => pm.expect(raiz).to.be.an('object'));",
+                  "if (raiz) {",
+                  "  guardar('recordTypeDevName', raiz.TargetRecordTypeDevName__c);",
+                  "  console.log('Record Type de destino = ' + raiz.TargetRecordTypeDevName__c);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Width__c, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c, PublicLabel__c, Description__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c, IsRequired__c, IsReadOnly__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, ConditionFieldApiName__c, Operator__c, Value__c, Effect__c, FilterLogicType__c, FilterLogic__c, Body__c, ItemLabel__c, AddButtonText__c, Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true ORDER BY Sort__c NULLS FIRST, Name",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Width__c, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c, PublicLabel__c, Description__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c, IsRequired__c, IsReadOnly__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, ConditionFieldApiName__c, Operator__c, Value__c, Effect__c, FilterLogicType__c, FilterLogic__c, Body__c, ItemLabel__c, AddButtonText__c, Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true ORDER BY Sort__c NULLS FIRST, Name"
+                }
+              ]
+            },
+            "description": "**48,7 KB · 165 ms** — a árvore inteira do formulário: seções, campos, blocos de texto, anexos, listas e regras.\n\n### O truque\n\n`Id = :formId OR Form__c = :formId`.\n\nToda linha da especificação aponta para a raiz em `Form__c`, além de apontar para o pai em `Parent__c`. É redundante de propósito: com isso uma condição **plana** traz a árvore completa, e a hierarquia é remontada na memória por `Parent__c`.\n\nSem essa redundância seriam N consultas ou Apex REST, porque SOQL só desce **um** nível de sub-query.\n\n### Os papéis\n\n`RecordType.DeveloperName` discrimina cada linha: `Form`, `Section`, `RepeatingSection`, `Field`, `Attachment`, `Content`, `Rule`.\n\nO script de teste imprime a contagem por tipo e grava `recordTypeDevName`."
+          }
+        },
+        {
+          "name": "03 · Record Type de destino",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Environment vence collection na resolução do Postman. Como o environment",
+                  "// de exemplo declara estas chaves vazias, gravar só na coleção faria a",
+                  "// requisição seguinte ler string vazia — escreve-se onde vai ser lido.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const rt = pm.response.json().records?.[0];",
+                  "pm.test('o Record Type existe e está ativo', () => pm.expect(rt).to.be.an('object'));",
+                  "if (rt) {",
+                  "  guardar('recordTypeId', rt.Id);",
+                  "  console.log('recordTypeId = ' + rt.Id + ' (' + rt.Name + ')');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, DeveloperName FROM RecordType WHERE SobjectType = '{{objectApiName}}' AND DeveloperName = '{{recordTypeDevName}}' LIMIT 1",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, DeveloperName FROM RecordType WHERE SobjectType = '{{objectApiName}}' AND DeveloperName = '{{recordTypeDevName}}' LIMIT 1"
+                }
+              ]
+            },
+            "description": "**0,2 KB · 132 ms**\n\nA especificação guarda o `DeveloperName`, não o Id. Id de Record Type **muda entre orgs** e não sobreviveria a uma promoção de forno para produção — o formulário passaria a apontar para nada, sem erro visível.\n\nO preço de guardar o nome é esta chamada. Vale.\n\n> Atenção: SOQL em `RecordType` **não** respeita visibilidade por profile. Numa org de produção esta consulta enxerga Record Types que o usuário não deveria ver. Aqui não importa, porque o Record Type já foi escolhido pelo catálogo — mas importa para quem usar SOQL como mecanismo de descoberta."
+          }
+        },
+        {
+          "name": "04 · Valores de picklist, por Record Type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const campos = pm.response.json().picklistFieldValues || {};",
+                  "const nomes = Object.keys(campos);",
+                  "console.log(`${nomes.length} picklists · ${Math.round(pm.response.responseSize / 1024)} KB`);",
+                  "",
+                  "const dependentes = nomes.filter((n) => Object.keys(campos[n].controllerValues || {}).length);",
+                  "console.log('dependentes: ' + (dependentes.join(', ') || 'nenhuma'));",
+                  "",
+                  "// controllerValues nomeia os VALORES do controlador, nunca o campo.",
+                  "// Quem controla quem só sai do FieldDefinition, na chamada 01.",
+                  "if (dependentes.length) {",
+                  "  console.log('  controllerValues de ' + dependentes[0] + ': ' + JSON.stringify(campos[dependentes[0]].controllerValues));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/ui-api/object-info/{{objectApiName}}/picklist-values/{{recordTypeId}}",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "ui-api",
+                "object-info",
+                "{{objectApiName}}",
+                "picklist-values",
+                "{{recordTypeId}}"
+              ]
+            },
+            "description": "**260,4 KB · 1.224 ms** — a maior e mais lenta do fluxo.\n\nÉ a única chamada que permanece na UI API, por duas razões que não têm contorno:\n\n- **É a única fonte que respeita Record Type e devolve dependências.** `describe`, `FieldDefinition`, `EntityParticle` e `PicklistValueInfo` foram testados; nenhum entrega `validFor` por Record Type.\n- **É a única que não entra no composite.** O endpoint recusa recursos de `ui-api` com `INVALID_BATCH_REQUEST` — ver a pasta 04.\n\n### O que `controllerValues` é, e o que não é\n\nÉ um mapa `valor-do-controlador → índice`, e os índices são o que aparece em `Option.validFor`. Ele **não** diz qual campo é o controlador. Esse nome vem do `FieldDefinition`, na chamada 01.\n\n### Otimização conhecida, não aplicada\n\nExiste a versão por campo:\n\n```\n/ui-api/object-info/{obj}/picklist-values/{rtId}/{campo}\n```\n\nMedida em **0,4 a 1,3 KB** por campo, ~100 ms. Doze campos concorrentes trocariam 260 KB por ~12 KB. Está na pasta 04 para comparação."
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 · Enviar",
+      "description": "Sem lista repetível, o envio é um POST e acabou. Com lista, precisa de `composite` — o Caso ainda não existe quando o cliente preenche, então os itens não têm o Id do pai para gravar.\n\n> Estas chamadas **criam registros de verdade**. Use numa scratch ou sandbox.",
+      "item": [
+        {
+          "name": "Criar Caso · sem itens de lista",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "if (j.id) console.log('Caso criado: ' + j.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"RecordTypeId\": \"{{recordTypeId}}\",\n  \"Type\": \"BankDataChange\",\n  \"SI_RequesterType__c\": \"Proprietario\",\n  \"SI_ContractStatus__c\": \"Ativo\",\n  \"SI_Email__c\": \"teste.demo@exemplo.com.br\",\n  \"SI_FullName__c\": \"Maria Teste da Silva\",\n  \"SI_OwnerDocument__c\": \"000.000.000-00\",\n  \"SI_AccountHolder__c\": \"MesmaTitularidade\",\n  \"SI_BankType__c\": \"BancoDigital\",\n  \"SI_BankBranch__c\": \"0001\",\n  \"SI_BankAccount__c\": \"123456-7\",\n  \"SI_DocumentType__c\": \"CNH\"\n}"
+            },
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "sobjects",
+                "{{objectApiName}}"
+              ]
+            },
+            "description": "`RecordTypeId` e `Type` são **campos de back-end**: o servidor os injeta a partir do catálogo, não os renderiza e não os aceita do cliente.\n\nQuem escolheu o formulário já escolheu os dois. Perguntar de novo abriria espaço para o payload divergir do catálogo — e para um cliente forjar em que Record Type o Caso nasce."
+          }
+        },
+        {
+          "name": "Criar Caso + itens de lista · composite",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const partes = pm.response.json().compositeResponse || [];",
+                  "",
+                  "// O erro que o composite exibe quase nunca é o erro.",
+                  "// Pai falhou  -> cada filho reporta 'Could not find the referenced operation'.",
+                  "// Filho falhou -> o pai reporta PROCESSING_HALTED.",
+                  "// Os dois são SINTOMA. A causa é a subrequisição cujo código não é nenhum desses.",
+                  "const SINTOMAS = ['PROCESSING_HALTED'];",
+                  "const falhas = partes.filter((p) => p.httpStatusCode >= 400);",
+                  "",
+                  "if (falhas.length) {",
+                  "  const raiz = falhas.find((p) => {",
+                  "    const corpo = Array.isArray(p.body) ? p.body[0] : p.body;",
+                  "    const cod = corpo?.errorCode || '';",
+                  "    const msg = corpo?.message || '';",
+                  "    return !SINTOMAS.includes(cod) && !msg.includes('referenced operation');",
+                  "  });",
+                  "  console.error('falha RAIZ: ' + JSON.stringify((raiz || falhas[0]).body));",
+                  "} else {",
+                  "  const criado = partes.find((p) => p.referenceId === 'registroCriado');",
+                  "  console.log('Caso ' + (criado?.body?.CaseNumber || '?') + ' criado com ' + (partes.length - 2) + ' item(ns).');",
+                  "}",
+                  "",
+                  "pm.test('nenhuma subrequisição falhou', () => pm.expect(falhas.length).to.eql(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"allOrNone\": true,\n  \"compositeRequest\": [\n    {\n      \"referenceId\": \"refPai\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}\",\n      \"body\": {\n        \"RecordTypeId\": \"{{recordTypeId}}\",\n        \"Type\": \"BankDataChange\",\n        \"SI_RequesterType__c\": \"Proprietario\",\n        \"SI_ContractStatus__c\": \"Ativo\",\n        \"SI_Email__c\": \"teste.demo@exemplo.com.br\",\n        \"SI_FullName__c\": \"Maria Teste da Silva\",\n        \"SI_OwnerDocument__c\": \"000.000.000-00\",\n        \"SI_AccountHolder__c\": \"MesmaTitularidade\",\n        \"SI_BankType__c\": \"BancoDigital\",\n        \"SI_BankBranch__c\": \"0001\",\n        \"SI_BankAccount__c\": \"123456-7\",\n        \"SI_DocumentType__c\": \"CNH\"\n      }\n    },\n    {\n      \"referenceId\": \"item1\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/CaseMember__c\",\n      \"body\": {\n        \"Name\": \"João Souza\",\n        \"ExternalId__c\": \"12345678901\",\n        \"Type__c\": \"Landlord\",\n        \"MemberSource__c\": \"Cognito\",\n        \"Case__c\": \"@{refPai.id}\"\n      }\n    },\n    {\n      \"referenceId\": \"registroCriado\",\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}/@{refPai.id}?fields=Id,CaseNumber,Status,CreatedDate\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/composite",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "composite"
+              ]
+            },
+            "description": "O `referenceId` da primeira subrequisição vira `@{refPai.id}` nas seguintes, resolvido **dentro da transação**.\n\n### Por que `allOrNone: true`\n\nUm Caso sem os registros que o justificam é pior que erro nenhum: a pessoa reenviaria e criaria um Caso duplicado, e a operação receberia dois pedidos para a mesma coisa — um deles silenciosamente incompleto.\n\n### `Type__c` e `MemberSource__c`\n\nSão campos **ocultos** na definição do formulário, com valor padrão. Não aparecem na tela; o valor da definição vence o que vier do cliente.\n\n### Ler o erro certo\n\nO script de teste implementa a busca pela falha **raiz**. Sem isso, um filho inválido faz o pai reportar `PROCESSING_HALTED` e o log aponta para o lugar errado.\n\n> `CaseMember__c.Email__c` é campo **fórmula** (`Account__r.PersonContact.Email`). Escrever nele devolve `INVALID_FIELD_FOR_INSERT_UPDATE`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 · O BFF · contrato normalizado",
+      "description": "O que os canais realmente consomem. As chamadas ao Salesforce ficam do outro lado desta fronteira.\n\nRequer o BFF rodando (`npm run dev`), em `{{bffUrl}}`.",
+      "item": [
+        {
+          "name": "Saúde e identidade",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{bffUrl}}/api/whoami",
+              "host": [
+                "{{bffUrl}}"
+              ],
+              "path": [
+                "api",
+                "whoami"
+              ]
+            },
+            "description": "Com qual identidade e em qual org o BFF está falando. Primeira coisa a checar quando um formulário vem diferente do esperado."
+          }
+        },
+        {
+          "name": "Catálogo de formulários",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Environment vence collection na resolução do Postman. Como o environment",
+                  "// de exemplo declara estas chaves vazias, gravar só na coleção faria a",
+                  "// requisição seguinte ler string vazia — escreve-se onde vai ser lido.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "const forms = pm.response.json().forms || [];",
+                  "console.log(forms.map((f) => `${f.id}  ${f.label}`).join('\\n'));",
+                  "if (forms.length) guardar('formId', forms[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{bffUrl}}/api/forms?source=FORM_SPEC",
+              "host": [
+                "{{bffUrl}}"
+              ],
+              "path": [
+                "api",
+                "forms"
+              ],
+              "query": [
+                {
+                  "key": "source",
+                  "value": "FORM_SPEC"
+                }
+              ]
+            },
+            "description": "O catálogo já normalizado — o que alimenta o seletor."
+          }
+        },
+        {
+          "name": "O contrato de um formulário",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const c = pm.response.json();",
+                  "",
+                  "pm.test('tem as chaves do contrato', () => {",
+                  "  pm.expect(c).to.have.all.keys(",
+                  "    'source', 'object', 'recordType', 'sections', 'attachments',",
+                  "    'backendFields', 'formDefinition', 'diagnostics'",
+                  "  );",
+                  "});",
+                  "",
+                  "const itens = c.sections.flatMap((s) => s.fields);",
+                  "const conta = (f) => itens.filter(f).length;",
+                  "console.log([",
+                  "  `seções ${c.sections.length}`,",
+                  "  `campos ${conta((i) => (i.kind ?? 'field') === 'field')}`,",
+                  "  `anexos ${conta((i) => i.kind === 'attachment')}`,",
+                  "  `textos ${conta((i) => i.kind === 'content')}`,",
+                  "  `listas ${c.sections.filter((s) => s.repeating).length}`,",
+                  "  `condicionais ${conta((i) => i.visibility)}`,",
+                  "  `validações ${conta((i) => i.validation)}`,",
+                  "].join(' · '));",
+                  "",
+                  "console.log('chamadas ao Salesforce:');",
+                  "for (const k of c.diagnostics.calls) console.log(`  ${k.method || 'GET'} ${k.label}`);",
+                  "",
+                  "if (c.diagnostics.warnings.length) {",
+                  "  console.warn('AVISOS: ' + c.diagnostics.warnings.join(' | '));",
+                  "}",
+                  "pm.test('sem avisos de tradução', () => pm.expect(c.diagnostics.warnings).to.eql([]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{bffUrl}}/api/form?source=formspec&formId={{formId}}",
+              "host": [
+                "{{bffUrl}}"
+              ],
+              "path": [
+                "api",
+                "form"
+              ],
+              "query": [
+                {
+                  "key": "source",
+                  "value": "formspec"
+                },
+                {
+                  "key": "formId",
+                  "value": "{{formId}}"
+                }
+              ]
+            },
+            "description": "**A chamada principal.** Devolve o contrato normalizado — a forma que os canais conhecem.\n\nTroque `source` por `uiapi`, `uiapi-v2` ou `screenflow` para ver as outras fontes produzindo **o mesmo formato**. É esse o ponto do desenho.\n\n`diagnostics.calls` lista o que o BFF chamou para montar isto; `diagnostics.warnings` acumula definição malformada que não impediu servir o formulário. Vale monitorar: cada aviso é um formulário entregando menos do que a operação configurou, sem erro visível."
+          }
+        },
+        {
+          "name": "Traduzir · sem tocar na org",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"formId\": \"a0xFORM\",\n  \"recordType\": { \"Id\": \"012DEMO\", \"Name\": \"Alteração de Dados Bancários\" },\n  \"schema\": [\n    {\n      \"QualifiedApiName\": \"SI_RequesterType__c\",\n      \"Label\": \"Selecione o seu usuário\",\n      \"DataType\": \"picklist\",\n      \"IsNillable\": true,\n      \"IsCreatable\": true,\n      \"DurableId\": \"Case.SI_RequesterType__c\"\n    },\n    {\n      \"QualifiedApiName\": \"SI_PartnerCPF__c\",\n      \"Label\": \"CPF do parceiro\",\n      \"DataType\": \"string\",\n      \"Length\": 14,\n      \"InlineHelpText\": \"Caso o dígito seja X, inserir 0 no lugar.\",\n      \"IsNillable\": true,\n      \"IsCreatable\": true,\n      \"DurableId\": \"Case.SI_PartnerCPF__c\"\n    }\n  ],\n  \"dependentes\": [],\n  \"picklists\": {\n    \"picklistFieldValues\": {\n      \"SI_RequesterType__c\": {\n        \"controllerValues\": {},\n        \"values\": [\n          { \"value\": \"Proprietario\", \"label\": \"Proprietário\", \"validFor\": [] },\n          { \"value\": \"Parceiro\", \"label\": \"Parceiro\", \"validFor\": [] }\n        ]\n      }\n    }\n  },\n  \"spec\": [\n    {\n      \"Id\": \"a0xFORM\",\n      \"RecordType\": { \"DeveloperName\": \"Form\" },\n      \"Name\": \"Alteração de dados bancários\",\n      \"ObjectApiName__c\": \"Case\",\n      \"TargetRecordTypeDevName__c\": \"SI_Demo_BankDataChange\",\n      \"CaseType__c\": \"BankDataChange\",\n      \"Channel__c\": \"ONLINE\"\n    },\n    {\n      \"Id\": \"a0xSEC1\",\n      \"RecordType\": { \"DeveloperName\": \"Section\" },\n      \"Form__c\": \"a0xFORM\",\n      \"Name\": \"Identificação\",\n      \"Sort__c\": 1\n    },\n    {\n      \"Id\": \"a0xF1\",\n      \"RecordType\": { \"DeveloperName\": \"Field\" },\n      \"Form__c\": \"a0xFORM\",\n      \"Parent__c\": \"a0xSEC1\",\n      \"Sort__c\": 1,\n      \"FieldApiName__c\": \"SI_RequesterType__c\",\n      \"IsRequired__c\": true\n    },\n    {\n      \"Id\": \"a0xF2\",\n      \"RecordType\": { \"DeveloperName\": \"Field\" },\n      \"Form__c\": \"a0xFORM\",\n      \"Parent__c\": \"a0xSEC1\",\n      \"Sort__c\": 2,\n      \"FieldApiName__c\": \"SI_PartnerCPF__c\",\n      \"Width__c\": \"HALF\"\n    },\n    {\n      \"Id\": \"a0xR1\",\n      \"RecordType\": { \"DeveloperName\": \"Rule\" },\n      \"Form__c\": \"a0xFORM\",\n      \"Parent__c\": \"a0xF2\",\n      \"Sort__c\": 1,\n      \"ConditionFieldApiName__c\": \"SI_RequesterType__c\",\n      \"Operator__c\": \"EQUALS\",\n      \"Value__c\": \"Parceiro\",\n      \"ValueSource__c\": \"LITERAL\",\n      \"Effect__c\": \"REQUIRE\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{bffUrl}}/api/traduzir",
+              "host": [
+                "{{bffUrl}}"
+              ],
+              "path": [
+                "api",
+                "traduzir"
+              ]
+            },
+            "description": "Converte os retornos do Salesforce no contrato **sem chamar a org**.\n\nO corpo espelha, campo a campo, o que as chamadas 01 a 04 devolvem: `spec` = 02, `schema` e `dependentes` = 01, `recordType` = 03, `picklists` = 04.\n\nRoda o **mesmo** `specToContract()` do adaptador, não uma cópia didática. Quem for reimplementar isto em outra linguagem pode colar o retorno da própria org aqui e usar a saída como oráculo.\n\nO exemplo acima é o menor caso que ainda demonstra algo: um campo com obrigatoriedade condicional. A versão completa — com lista repetível, anexo, bloco de texto e validação por token de data — está na página **Solução Custom** da aplicação, editável ao vivo."
+          }
+        },
+        {
+          "name": "Validar preenchimento · sem enviar",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contract\": \"<<cole aqui o retorno de GET /api/form>>\",\n  \"values\": {\n    \"SI_RequesterType__c\": \"Parceiro\",\n    \"SI_ContractStatus__c\": \"Ativo\",\n    \"__listas\": {\n      \"<<id da seção repetível>>\": [{ \"Name\": \"João Souza\" }]\n    },\n    \"__attachments\": []\n  }\n}"
+            },
+            "url": {
+              "raw": "{{bffUrl}}/api/submit",
+              "host": [
+                "{{bffUrl}}"
+              ],
+              "path": [
+                "api",
+                "submit"
+              ]
+            },
+            "description": "Monta o payload que **seria** enviado, e devolve o diagnóstico sem gravar nada:\n\n| chave | o que diz |\n| :-- | :-- |\n| `valid` | passou nos obrigatórios e nas validações |\n| `missing` | obrigatórios não preenchidos — inclui os que viraram obrigatórios por regra |\n| `invalid` | validações `BLOCK` que dispararam, com a mensagem |\n| `hiddenFieldsIgnored` | campos ocultos por regra, deixados fora do payload |\n| `injectedFields` | o que o back-end gravou por conta própria |\n| `request` | o POST ou o composite pronto |\n\nO avaliador aqui é o **mesmo** que roda no navegador a cada digitação — é o que garante que a tela e o envio não discordem."
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 · Alternativas medidas",
+      "description": "O caminho até o desenho atual, reproduzível.\n\nAs duas últimas **falham de propósito**: estão aqui porque a falha é a justificativa de uma decisão, e vale poder repetir o experimento.\n\n> Três destas requisições usam `{{recordTypeId}}`, preenchido pela pasta **01**. Rode a 01 antes, ou a chamada volta `NOT_FOUND` — que é um erro diferente do que se quer demonstrar.",
+      "item": [
+        {
+          "name": "ui-api/object-info · o que foi substituído",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const kb = pm.response.responseSize / 1024;",
+                  "const campos = Object.keys(pm.response.json().fields || {});",
+                  "console.log(`${kb.toFixed(1)} KB · ${campos.length} campos · ${pm.response.responseTime} ms`);",
+                  "const um = pm.response.json().fields[campos[0]];",
+                  "console.log(`atributos por campo: ${Object.keys(um).length}`);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/ui-api/object-info/{{objectApiName}}",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "ui-api",
+                "object-info",
+                "{{objectApiName}}"
+              ]
+            },
+            "description": "**377,5 KB · 502 ms** nesta org.\n\nTodos os campos, com 36 atributos cada, e sem possibilidade de filtro. Contra **159,9 KB** do `EntityParticle` com 13 colunas escolhidas.\n\nO script imprime o tamanho, a contagem de campos e quantos atributos vêm por campo — os números variam com a org, e a proporção é o que importa."
+          }
+        },
+        {
+          "name": "ui-api/layout · a fonte Page Layout",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/ui-api/layout/{{objectApiName}}?recordTypeId={{recordTypeId}}&mode=Create",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "ui-api",
+                "layout",
+                "{{objectApiName}}"
+              ],
+              "query": [
+                {
+                  "key": "recordTypeId",
+                  "value": "{{recordTypeId}}"
+                },
+                {
+                  "key": "mode",
+                  "value": "Create"
+                }
+              ]
+            },
+            "description": "**9,8 KB · 503 ms** — a estrutura da fonte descartada.\n\nTraz seções, ordem e obrigatoriedade por formulário de graça, e o admin edita em Setup. Não traz **tipo** nem **rótulo** — é puramente estrutural, e por isso sempre precisa do schema ao lado.\n\nDescartada por dois limites sem contorno: o Page Layout não modela **condição** nem **anexo**, e o retorno da UI API não é extensível. As duas capacidades exigiriam objetos de apoio — o que anula a vantagem de não construir nada.\n\n> O layout é resolvido pelo profile do usuário autenticado. No modo Client Credentials, isso é o profile do usuário \"Run As\" do External Client App — não o do cliente que preenche."
+          }
+        },
+        {
+          "name": "picklist-values por campo · a otimização",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log(`${(pm.response.responseSize / 1024).toFixed(1)} KB · ${pm.response.responseTime} ms`);",
+                  "console.log('contra 260,4 KB / 1.224 ms da chamada completa (todas as picklists do Record Type).');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/ui-api/object-info/{{objectApiName}}/picklist-values/{{recordTypeId}}/SI_BankType__c",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "ui-api",
+                "object-info",
+                "{{objectApiName}}",
+                "picklist-values",
+                "{{recordTypeId}}",
+                "SI_BankType__c"
+              ]
+            },
+            "description": "**0,4 KB · 100 ms** para este campo. Medidos 0,4 a 1,3 KB por campo, conforme o tamanho da picklist.\n\nUm formulário típico tem uma dúzia de picklists: ~12 KB em requisições concorrentes, contra 260,4 KB numa só. É a otimização mais óbvia do fluxo, e a decisão de não aplicá-la ainda foi só de escopo da POC.\n\nTroque o último segmento por qualquer campo picklist do objeto."
+          }
+        },
+        {
+          "name": "ui-api dentro de composite/batch · FALHA ESPERADA",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json().results || [];",
+                  "console.log(JSON.stringify(r.map((x) => ({ status: x.statusCode, corpo: x.result })), null, 2));",
+                  "",
+                  "pm.test('a subrequisição SOQL passa — o batch em si está bem formado', () => {",
+                  "  pm.expect(r[0].statusCode).to.eql(200);",
+                  "});",
+                  "",
+                  "pm.test('a subrequisição ui-api é recusada com INVALID_BATCH_REQUEST', () => {",
+                  "  pm.expect(r[1].statusCode).to.eql(400);",
+                  "  const corpo = Array.isArray(r[1].result) ? r[1].result[0] : r[1].result;",
+                  "  pm.expect(corpo.errorCode).to.eql('INVALID_BATCH_REQUEST');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"batchRequests\": [\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/query?q=SELECT Id FROM RecordType LIMIT 1\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/ui-api/object-info/{{objectApiName}}\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/composite/batch",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "composite",
+                "batch"
+              ]
+            },
+            "description": "**Falha de propósito.** É a justificativa de por que a chamada 04 fica sozinha.\n\nA primeira subrequisição (SOQL) responde 200; a segunda (`ui-api`) devolve **400**:\n\n```\nINVALID_BATCH_REQUEST: Cannot access this resource in a batch request\n```\n\nO SOQL na mesma requisição serve de controle: prova que o batch em si está bem formado e que o problema é o recurso.\n\n`/composite` também não aceita — devolve 404 para recursos de `ui-api`. GraphQL não expõe `objectInfo`/`layout`/`picklistValues`, e `aggregate-ui` não existe em nenhuma versão entre v58 e v66. **As picklists saem em chamada separada, sempre.**"
+          }
+        },
+        {
+          "name": "EntityParticle × FieldDefinition · FALHA ESPERADA",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('o EntityParticle não expõe ControllingFieldDefinitionId', () => {",
+                  "  pm.expect(pm.response.code).to.eql(400);",
+                  "});",
+                  "console.log(JSON.stringify(pm.response.json(), null, 2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT QualifiedApiName, ControllingFieldDefinitionId FROM EntityParticle WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' LIMIT 1",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT QualifiedApiName, ControllingFieldDefinitionId FROM EntityParticle WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' LIMIT 1"
+                }
+              ]
+            },
+            "description": "**Falha de propósito.** É a justificativa das *duas* subrequisições de schema na chamada 01.\n\nNenhum dos dois objetos tem o conjunto completo:\n\n| coluna | `EntityParticle` | `FieldDefinition` |\n| :-- | :--: | :--: |\n| `InlineHelpText` | ✅ | ❌ |\n| `ControllingFieldDefinitionId` | ❌ | ✅ |\n\nEsta consulta devolve `INVALID_FIELD`. Trocar `EntityParticle` por `FieldDefinition` faz esta passar — e aí é `InlineHelpText` que quebra.\n\nComo ambas são SOQL, cabem no mesmo composite: o custo de somar as duas é **0,3 KB**."
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 · Diagnóstico",
+      "item": [
+        {
+          "name": "Limites da org",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/limits",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "limits"
+              ]
+            },
+            "description": "`DailyApiRequests` é o número a acompanhar se o formulário for para produção sem cache: a chamada 01 sai a cada abertura de sessão."
+          }
+        },
+        {
+          "name": "Descrever SI_FormSpec__c",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/sobjects/{{specObject}}/describe",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "sobjects",
+                "{{specObject}}",
+                "describe"
+              ]
+            },
+            "description": "Os campos e os Record Types do objeto de definição. Útil para conferir se o deploy chegou completo — em especial os sete Record Types e os valores de `Effect__c` (`SHOW`, `REQUIRE`, `BLOCK`)."
+          }
+        },
+        {
+          "name": "Campos visíveis para este usuário",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json().records || [];",
+                  "console.log(`${r.length} campos criáveis visíveis para o usuário atual`);",
+                  "const si = r.filter((c) => c.QualifiedApiName.startsWith('SI_'));",
+                  "console.log('campos SI_: ' + si.map((c) => c.QualifiedApiName).join(', '));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT QualifiedApiName, Label, DataType FROM EntityParticle WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND IsCreatable = true ORDER BY QualifiedApiName",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT QualifiedApiName, Label, DataType FROM EntityParticle WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND IsCreatable = true ORDER BY QualifiedApiName"
+                }
+              ]
+            },
+            "description": "**A chamada de diagnóstico de FLS.**\n\n`IsCreatable` é avaliado para o usuário autenticado. Se um campo que existe em Setup **não** aparece aqui, é FLS — e é exatamente o que faz a REST responder `No such column` numa consulta que o cita.\n\nA mensagem não menciona permissão em momento nenhum, e a conclusão errada (\"o campo não existe\") é a mais natural. Rode isto antes de investigar qualquer outra hipótese."
+          }
+        }
+      ]
+    }
+  ]
+}

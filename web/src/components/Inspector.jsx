@@ -69,9 +69,19 @@ function Calls({ contract }) {
             </>
           )}
           <div className="help">
-            É o registro de <code>FormDefinition__c</code> que amarra o formulário ao Record
-            Type. Sem ele, a fonte Screen Flow precisava de dois seletores — o Flow não
-            declara Record Type, então as picklists não tinham como ser resolvidas.
+            {fd.source === 'FORM_SPEC' ? (
+              <>
+                É a linha raiz de <code>SI_FormSpec__c</code> — a de Record Type{' '}
+                <code>Form</code> — que amarra o formulário ao Record Type de destino e ao
+                Type do Caso. Na fonte custom o catálogo e a definição são a mesma tabela.
+              </>
+            ) : (
+              <>
+                É o registro de <code>FormDefinition__c</code> que amarra o formulário ao
+                Record Type. Sem ele, a fonte Screen Flow precisava de dois seletores — o Flow
+                não declara Record Type, então as picklists não tinham como ser resolvidas.
+              </>
+            )}
           </div>
         </div>
       )}
@@ -287,7 +297,13 @@ function Payload({ contract, result, createResult, creating, onCreate }) {
           <strong>Gravados pelo back-end</strong>
           {contract?.formDefinition ? (
             <>
-              , a partir de <code>FormDefinition__c</code> — “{contract.formDefinition.label}”
+              , a partir de{' '}
+              <code>
+                {contract.formDefinition.source === 'FORM_SPEC'
+                  ? 'SI_FormSpec__c'
+                  : 'FormDefinition__c'}
+              </code>{' '}
+              — “{contract.formDefinition.label}”
             </>
           ) : null}
           :

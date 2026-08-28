@@ -21,7 +21,7 @@ import {
   SalesforceError,
   schemaECatalogo,
 } from './salesforce.js';
-import { buildSubmitPayload } from './contract.js';
+import { buildSubmitPayload, indexarCampos } from './contract.js';
 import * as uiapi from './adapters/uiapi.js';
 import * as uiapiV2 from './adapters/uiapi-v2.js';
 import * as screenflow from './adapters/screenflow.js';
@@ -189,6 +189,55 @@ app.get('/api/form', async (req, res) => {
     ok(res, contract);
   } catch (err) {
     fail(res, err);
+  }
+});
+
+/**
+ * Tradução pura: retornos do Salesforce -> contrato, SEM tocar na org.
+ *
+ * É o mesmo `specToContract` que o adaptador usa de verdade — não uma cópia
+ * didática. Serve a dois públicos: quem quer entender a conversão sem precisar
+ * de credencial, e quem for reimplementar o adaptador em outra linguagem e
+ * precisa de um oráculo para conferir a saída.
+ *
+ * O corpo espelha, campo a campo, o que as chamadas 01 a 04 devolvem.
+ */
+app.post('/api/traduzir', (req, res) => {
+  const { spec, schema = [], dependentes = [], picklists = null, recordType = null, formId } =
+    req.body || {};
+
+  if (!Array.isArray(spec) || spec.length === 0) {
+    return res.status(400).json({ error: 'Informe `spec`: as linhas de SI_FormSpec__c.' });
+  }
+
+  const raiz =
+    spec.find((r) => r.Id === formId) ?? spec.find((r) => r.RecordType?.DeveloperName === 'Form');
+  if (!raiz) {
+    return res.status(400).json({ error: 'Nenhuma linha com RecordType.DeveloperName = "Form".' });
+  }
+
+  // O mesmo cruzamento que `schemaECatalogo` faz com o retorno do composite:
+  // ControllingFieldDefinitionId aponta para o DurableId de OUTRO campo.
+  const porDurable = {};
+  for (const c of schema) if (c.DurableId) porDurable[c.DurableId] = c.QualifiedApiName;
+  const controladorDe = {};
+  for (const d of dependentes) {
+    controladorDe[d.QualifiedApiName] =
+      porDurable[d.ControllingFieldDefinitionId] ?? d.ControllingFieldDefinitionId;
+  }
+
+  try {
+    const contract = formspec.specToContract(spec, {
+      formId: raiz.Id,
+      objectApiName: raiz.ObjectApiName__c || config.objectApiName,
+      indiceDeCampos: indexarCampos(schema),
+      controladorDe,
+      picklists,
+      rt: recordType,
+    });
+    ok(res, contract);
+  } catch (err) {
+    res.status(422).json({ error: err.message });
   }
 });
 

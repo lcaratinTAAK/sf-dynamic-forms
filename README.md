@@ -139,6 +139,7 @@ como código seria injeção.
 | `POST /api/submit` | monta o payload que *seria* enviado, sem enviar |
 | `POST /api/create-record` | cria de verdade |
 | `POST /api/replay` | reexecuta uma chamada e devolve peso e tempo |
+| `POST /api/traduzir` | converte retornos do Salesforce no contrato **sem tocar na org** |
 
 `GET /api/form` recebe `source` e o identificador correspondente:
 
@@ -167,6 +168,9 @@ web/
       Field.jsx            um campo, por tipo de dado
       Inspector.jsx        as chamadas feitas, com envio e retorno
       Info.jsx             comparativo das abordagens
+      InfoCustom.jsx       a solução escolhida, em detalhe
+  public/prints/           capturas do configurador e do formulário
+postman/                   a coleção e o environment de exemplo
 docs/                      notas de decisão
 fixtures/                  payloads capturados, para rodar sem org
 scripts/
@@ -190,6 +194,46 @@ o que voltou, o peso e o tempo. Não é enfeite: foi assim que descobrimos que
 
 O `POST /api/replay` reexecuta qualquer chamada da lista, para medir sem
 recarregar a página.
+
+---
+
+## As páginas de informações
+
+A aplicação tem três abas. A **Demo** é o formulário; as outras duas são
+documentação que se mantém sozinha, porque lê da mesma fonte que o código.
+
+| aba | o que responde |
+| :-- | :-- |
+| **Comparativo** | qual das fontes sustenta o catálogo inteiro, e o que cada uma cobrou para chegar lá |
+| **Solução Custom** | como a fonte escolhida funciona, do primeiro GET ao Caso criado |
+
+A aba **Solução Custom** traz um tradutor ao vivo: à esquerda, os retornos do
+Salesforce; à direita, o contrato. Editar a esquerda muda a direita. Não é
+simulação — ela chama `POST /api/traduzir`, que roda o mesmo
+`specToContract()` do adaptador. Quem for reimplementar isso em outra
+linguagem pode colar o retorno da própria org e usar a saída como oráculo.
+
+As capturas em `web/public/prints/` são do configurador na org e do formulário
+renderizado. Foram tiradas contra uma scratch real; se a interface mudar, elas
+envelhecem — vale refazê-las junto.
+
+---
+
+## A coleção Postman
+
+`postman/` traz as chamadas em seis pastas, com um *environment* de exemplo.
+A coleção roda de cima para baixo: cada pasta grava nas variáveis o que a
+próxima precisa.
+
+```bash
+newman run postman/Formularios-Dinamicos.postman_collection.json   -e postman/Scratch-org.postman_environment.json
+```
+
+Duas requisições **falham de propósito** e estão lá por isso: uma prova que a
+UI API é recusada dentro de `composite/batch`, outra que `EntityParticle` não
+expõe `ControllingFieldDefinitionId`. As duas falhas são a justificativa de
+decisões de desenho, e vale poder repetir o experimento em vez de acreditar
+numa nota de rodapé.
 
 ---
 
@@ -223,6 +267,7 @@ Em `docs/`, o registro do que foi tentado e por quê:
 | `FONTE-CUSTOM.md` | o desenho do `SI_FormSpec__c` |
 | `FormFieldRule.md` | o objeto de regras da fonte UI API |
 | `URLS.md` | as chamadas de cada fonte, uma a uma |
+| `RFC-Formularios-Dinamicos.md` | a proposta formal: modelo, contrato, chamadas, riscos |
 
 ---
 

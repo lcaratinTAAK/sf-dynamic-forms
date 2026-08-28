@@ -3,6 +3,7 @@ import * as api from './api.js';
 import FormRenderer from './components/FormRenderer.jsx';
 import Inspector from './components/Inspector.jsx';
 import Info from './components/Info.jsx';
+import InfoCustom from './components/InfoCustom.jsx';
 
 const SOURCES = [
   { id: 'uiapi', label: 'UI API', hint: 'object-info + layout + picklists + regras' },
@@ -17,7 +18,7 @@ const usaCatalogo = (source) => source === 'screenflow' || source === 'formspec'
 const CATALOGO_DE = { screenflow: 'SCREEN_FLOW', formspec: 'FORM_SPEC' };
 
 export default function App() {
-  const [aba, setAba] = useState('demo'); // demo | info
+  const [aba, setAba] = useState('demo'); // demo | info | custom
   const [source, setSource] = useState('uiapi');
   const [recordTypes, setRecordTypes] = useState([]);
   const [forms, setForms] = useState([]);
@@ -196,11 +197,17 @@ export default function App() {
               className={`aba-btn${aba === 'info' ? ' is-active' : ''}`}
               onClick={() => setAba('info')}
             >
-              Informações
+              Comparativo
+            </button>
+            <button
+              className={`aba-btn${aba === 'custom' ? ' is-active' : ''}`}
+              onClick={() => setAba('custom')}
+            >
+              Solução Custom
             </button>
           </div>
 
-          {aba === 'info' ? null : usaCatalogo(source) ? (
+          {aba !== 'demo' ? null : usaCatalogo(source) ? (
             <div className="control">
               <label htmlFor="form">
                 Formulário
@@ -240,6 +247,8 @@ export default function App() {
 
       {aba === 'info' ? (
         <Info />
+      ) : aba === 'custom' ? (
+        <InfoCustom />
       ) : (
       <div className="main">
         <div className="pane">
