@@ -1,0 +1,532 @@
+/* ---------------------------------------------------------------------------
+   Página de Informações.
+   Reaproveita as variáveis de styles.css — inclusive o acento por fonte.
+--------------------------------------------------------------------------- */
+
+.abas {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  align-self: flex-end;
+}
+.aba-btn {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  padding: 6px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.aba-btn:hover {
+  color: var(--text);
+}
+.aba-btn.is-active {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+/* A página é longa e rola no body — por isso o topbar fica fixo, senão a
+   navegação de volta para a demo some assim que se desce um pouco. */
+.app:has(.info) .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.info {
+  padding: 34px 40px 90px;
+  max-width: 1120px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.info-secao {
+  margin-bottom: 52px;
+}
+.info-chapeu {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 7px;
+}
+.info-secao h2 {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 16px;
+  color: var(--text);
+}
+.info-secao p {
+  font-size: 13.5px;
+  line-height: 1.68;
+  color: var(--text-dim);
+  margin: 0 0 12px;
+  max-width: 76ch;
+}
+.info-secao strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.info-secao code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+.info-nota {
+  border-left: 2px solid var(--border);
+  padding: 9px 0 9px 15px;
+  margin: 16px 0 0 !important;
+  font-size: 12.5px !important;
+}
+.info-nota.aviso {
+  border-left-color: var(--warn);
+}
+
+.lista {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  display: grid;
+  gap: 11px;
+  max-width: 76ch;
+}
+.lista li {
+  font-size: 13.5px;
+  line-height: 1.68;
+  color: var(--text-dim);
+}
+
+/* --- diagrama SVG --------------------------------------------------------- */
+
+.diagrama {
+  width: 100%;
+  height: auto;
+  max-width: 900px;
+  margin: 4px 0 8px;
+}
+.d-box {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.d-box.d-destaque {
+  fill: var(--surface-2);
+  stroke: var(--accent);
+}
+.d-chip {
+  fill: var(--bg);
+  stroke: var(--border-soft);
+  stroke-width: 1;
+}
+.d-linha {
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+.d-seta {
+  fill: var(--border);
+}
+.d-titulo {
+  fill: var(--text-faint);
+  font-family: var(--sans);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+.d-label {
+  fill: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+}
+.d-sub {
+  fill: var(--text-faint);
+  font-family: var(--sans);
+  font-size: 10.5px;
+}
+.d-mono {
+  fill: var(--accent);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.d-rodape {
+  fill: var(--text-faint);
+  font-family: var(--sans);
+  font-size: 11px;
+}
+
+/* --- tabela de requisitos ------------------------------------------------- */
+
+.tabela-scroll {
+  overflow-x: auto;
+}
+
+.tab-req,
+.tab-custo {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.tab-req th,
+.tab-custo th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 0 16px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: bottom;
+}
+.tab-req td,
+.tab-custo td {
+  padding: 16px;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+.tab-req .c-req {
+  width: 30%;
+  min-width: 250px;
+  padding-left: 0;
+}
+.tab-req th:not(.c-req) {
+  width: 35%;
+}
+
+.req-titulo {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.45;
+  margin-bottom: 6px;
+}
+.req-n {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  margin-right: 8px;
+  font-weight: 400;
+}
+.req-detalhe {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+.req-nota {
+  margin-top: 9px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  font-size: 11px;
+  line-height: 1.58;
+  color: var(--text-faint);
+}
+
+.selo {
+  display: inline-block;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+.selo.em-linha {
+  margin: 0 1px;
+  vertical-align: baseline;
+}
+/* nativo sai de graça; construído funciona igual, mas é metadado nosso */
+.selo.nativo {
+  background: rgba(74, 222, 128, 0.13);
+  color: var(--ok);
+}
+.selo.construido {
+  background: var(--uiapi-soft);
+  color: var(--uiapi);
+}
+.selo.parcial {
+  background: rgba(251, 191, 36, 0.13);
+  color: var(--warn);
+}
+.selo.nao {
+  background: rgba(248, 113, 113, 0.13);
+  color: var(--err);
+}
+
+.celula-via {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  margin: -3px 0 7px;
+  word-break: break-word;
+}
+
+.celula-texto {
+  font-size: 12px;
+  line-height: 1.62;
+}
+
+/* --- aprofundamento de um requisito --------------------------------------- */
+
+.aprofunda {
+  margin-top: 26px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 20px 22px 22px;
+}
+.aprofunda-head {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 14px;
+}
+.aprofunda p {
+  font-size: 12.5px !important;
+  margin-bottom: 10px !important;
+}
+.aprofunda .lista li {
+  font-size: 12.5px;
+}
+
+.dois-tipos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  margin: 14px 0 18px;
+}
+.tipo {
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  background: var(--bg);
+  padding: 14px 16px;
+}
+.tipo > code {
+  font-size: 12.5px;
+  background: none;
+  padding: 0;
+}
+.tipo-sub {
+  display: block;
+  font-size: 11px;
+  color: var(--text-faint);
+  margin: 3px 0 10px;
+}
+.tipo ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 7px;
+}
+.tipo li {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  padding-left: 18px;
+  position: relative;
+}
+.tipo li::before {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-weight: 700;
+}
+.tipo li.ok::before {
+  content: '+';
+  color: var(--ok);
+}
+.tipo li.nao::before {
+  content: '−';
+  color: var(--err);
+}
+
+.erro-deploy {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--err);
+  background: var(--bg);
+  border-left: 2px solid var(--err);
+  border-radius: 0 5px 5px 0;
+  padding: 13px 16px;
+  margin: 0 0 14px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* --- fluxos lado a lado --------------------------------------------------- */
+
+.fluxos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 20px;
+  margin-bottom: 4px;
+}
+.fluxo {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.fluxo-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 13px 16px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+.fluxo-head strong {
+  font-size: 13px;
+}
+.fluxo-head span {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.fluxo-passos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: passo;
+}
+.fluxo-passos li {
+  counter-increment: passo;
+  padding: 12px 16px 12px 44px;
+  border-bottom: 1px solid var(--border-soft);
+  position: relative;
+}
+.fluxo-passos li:last-child {
+  border-bottom: 0;
+}
+.fluxo-passos li::before {
+  content: counter(passo, decimal-leading-zero);
+  position: absolute;
+  left: 16px;
+  top: 13px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.passo-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 5px;
+}
+.passo-peso {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.passo-alvo {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  line-height: 1.5;
+  word-break: break-word;
+}
+.passo-porque {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.55;
+  margin-top: 4px;
+}
+.tag {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-faint);
+}
+.tag.ui-api {
+  background: var(--uiapi-soft);
+  color: var(--uiapi);
+}
+.tag.tooling {
+  background: var(--flow-soft);
+  color: var(--flow);
+}
+.tag.batch,
+.tag.soql {
+  background: var(--uiapi2-soft);
+  color: var(--uiapi2);
+}
+
+/* --- custos --------------------------------------------------------------- */
+
+.tab-custo td:first-child,
+.tab-custo th:first-child {
+  padding-left: 0;
+}
+.tab-custo .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tab-custo td.num {
+  color: var(--text);
+}
+.barra {
+  height: 3px;
+  background: var(--surface-2);
+  border-radius: 2px;
+  margin-bottom: 6px;
+  overflow: hidden;
+  min-width: 90px;
+}
+.barra span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+/* --- armadilhas ----------------------------------------------------------- */
+
+.armadilhas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 14px;
+}
+.armadilha {
+  border: 1px solid var(--border-soft);
+  border-left: 2px solid var(--warn);
+  border-radius: 0 7px 7px 0;
+  background: var(--surface);
+  padding: 14px 16px;
+}
+.armadilha strong {
+  display: block;
+  font-size: 12.5px;
+  line-height: 1.45;
+  margin-bottom: 7px;
+  color: var(--text);
+}
+.armadilha p {
+  margin: 0 !important;
+  font-size: 11.5px !important;
+  line-height: 1.62;
+  color: var(--text-faint);
+}

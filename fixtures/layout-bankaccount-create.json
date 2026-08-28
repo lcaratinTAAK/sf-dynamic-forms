@@ -1,0 +1,510 @@
+﻿{
+  "eTag": "edb3be61f394dd9474c206443074ada4",
+  "id": "00hbe000003mXGjAAM",
+  "layoutType": "Full",
+  "mode": "Create",
+  "objectApiName": "Case",
+  "recordTypeId": "012be000001zYygAAE",
+  "saveOptions": [],
+  "sections": [
+    {
+      "collapsible": false,
+      "columns": 2,
+      "heading": "Informações do Caso",
+      "id": "01Bbe000004t20iEAA",
+      "layoutRows": [
+        {
+          "layoutItems": [
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Case Origin",
+              "layoutComponents": [
+                {
+                  "apiName": "Origin",
+                  "componentType": "Field",
+                  "label": "Case Origin"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": false,
+              "sortable": false,
+              "uiBehavior": "Edit"
+            },
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Parent Case",
+              "layoutComponents": [
+                {
+                  "apiName": "ParentId",
+                  "componentType": "Field",
+                  "label": "Parent Case ID"
+                }
+              ],
+              "lookupIdApiName": "ParentId",
+              "required": false,
+              "sortable": false,
+              "uiBehavior": "Edit"
+            }
+          ]
+        },
+        {
+          "layoutItems": [
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Nome do Cliente",
+              "layoutComponents": [
+                {
+                  "apiName": "ClientName__c",
+                  "componentType": "Field",
+                  "label": "Nome do Cliente"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": false,
+              "sortable": false,
+              "uiBehavior": "Edit"
+            },
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "CPF",
+              "layoutComponents": [
+                {
+                  "apiName": "CPF__c",
+                  "componentType": "Field",
+                  "label": "CPF"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": false,
+              "sortable": false,
+              "uiBehavior": "Edit"
+            }
+          ]
+        },
+        {
+          "layoutItems": [
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Web Email",
+              "layoutComponents": [
+                {
+                  "apiName": "SuppliedEmail",
+                  "componentType": "Field",
+                  "label": "Email Address"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": true,
+              "sortable": false,
+              "uiBehavior": "Required"
+            },
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "PP Multi",
+              "layoutComponents": [
+                {
+                  "apiName": "PPMultiPicklist__c",
+                  "componentType": "Field",
+                  "label": "PP Multi"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": true,
+              "sortable": false,
+              "uiBehavior": "Required"
+            }
+          ]
+        },
+        {
+          "layoutItems": [
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Telefone do Cliente",
+              "layoutComponents": [
+                {
+                  "apiName": "ClientPhone__c",
+                  "componentType": "Field",
+                  "label": "Telefone do Cliente"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": true,
+              "sortable": false,
+              "uiBehavior": "Required"
+            },
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Id do Contrato Relacionado",
+              "layoutComponents": [
+                {
+                  "apiName": "RelatedContractId__c",
+                  "componentType": "Field",
+                  "label": "Id do Contrato Relacionado"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": true,
+              "sortable": false,
+              "uiBehavior": "Required"
+            }
+          ]
+        },
+        {
+          "layoutItems": [
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Proposta (NA caso não se aplique)",
+              "layoutComponents": [
+                {
+                  "apiName": "ProposalText__c",
+                  "componentType": "Field",
+                  "label": "Proposta (NA caso não se aplique)"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": true,
+              "sortable": false,
+              "uiBehavior": "Required"
+            },
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Imóvel",
+              "layoutComponents": [
+                {
+                  "apiName": "PropertyID__c",
+                  "componentType": "Field",
+                  "label": "Imóvel"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": true,
+              "sortable": false,
+              "uiBehavior": "Required"
+            }
+          ]
+        },
+        {
+          "layoutItems": [
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Status do contrato",
+              "layoutComponents": [
+                {
+                  "apiName": "ContractStatus__c",
+                  "componentType": "Field",
+                  "label": "Status do contrato"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": true,
+              "sortable": false,
+              "uiBehavior": "Required"
+            },
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Endereço do Imóvel",
+              "layoutComponents": [
+                {
+                  "apiName": "PropertyAddress__c",
+                  "componentType": "Field",
+                  "label": "Endereço do Imóvel"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": false,
+              "sortable": false,
+              "uiBehavior": "Edit"
+            }
+          ]
+        },
+        {
+          "layoutItems": [
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Type",
+              "layoutComponents": [
+                {
+                  "apiName": "Type",
+                  "componentType": "Field",
+                  "label": "Case Type"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": true,
+              "sortable": false,
+              "uiBehavior": "Required"
+            },
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Tipo de cliente",
+              "layoutComponents": [
+                {
+                  "apiName": "ClientType__c",
+                  "componentType": "Field",
+                  "label": "Tipo de cliente"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": true,
+              "sortable": false,
+              "uiBehavior": "Required"
+            }
+          ]
+        },
+        {
+          "layoutItems": [
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Canal de preferência de contato",
+              "layoutComponents": [
+                {
+                  "apiName": "PreferredContactChannel__c",
+                  "componentType": "Field",
+                  "label": "Canal de preferência de contato"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": true,
+              "sortable": false,
+              "uiBehavior": "Required"
+            },
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Resumo do Caso",
+              "layoutComponents": [
+                {
+                  "apiName": "CaseDescription__c",
+                  "componentType": "Field",
+                  "label": "Resumo do Caso"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": true,
+              "sortable": false,
+              "uiBehavior": "Required"
+            }
+          ]
+        }
+      ],
+      "rows": 8,
+      "tabOrder": "LeftRight",
+      "useHeading": true
+    },
+    {
+      "collapsible": false,
+      "columns": 2,
+      "heading": "Informações Adicionais",
+      "id": "01Bbe000004t20jEAA",
+      "layoutRows": [
+        {
+          "layoutItems": [
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Subject",
+              "layoutComponents": [
+                {
+                  "apiName": "Subject",
+                  "componentType": "Field",
+                  "label": "Subject"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": false,
+              "sortable": false,
+              "uiBehavior": "Edit"
+            },
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Contact Name",
+              "layoutComponents": [
+                {
+                  "apiName": "ContactId",
+                  "componentType": "Field",
+                  "label": "Contact ID"
+                }
+              ],
+              "lookupIdApiName": "ContactId",
+              "required": false,
+              "sortable": false,
+              "uiBehavior": "Edit"
+            }
+          ]
+        },
+        {
+          "layoutItems": [
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Status",
+              "layoutComponents": [
+                {
+                  "apiName": "Status",
+                  "componentType": "Field",
+                  "label": "Status"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": true,
+              "sortable": false,
+              "uiBehavior": "Required"
+            },
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Email do Analista no Magic Link",
+              "layoutComponents": [
+                {
+                  "apiName": "MagiclinkAnalystEmail__c",
+                  "componentType": "Field",
+                  "label": "Email do Analista no Magic Link"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": false,
+              "sortable": false,
+              "uiBehavior": "Readonly"
+            }
+          ]
+        },
+        {
+          "layoutItems": [
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Priority",
+              "layoutComponents": [
+                {
+                  "apiName": "Priority",
+                  "componentType": "Field",
+                  "label": "Priority"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": false,
+              "sortable": false,
+              "uiBehavior": "Edit"
+            },
+            {
+              "editableForNew": false,
+              "editableForUpdate": false,
+              "label": "",
+              "layoutComponents": [
+                {
+                  "apiName": null,
+                  "componentType": "EmptySpace"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": false,
+              "sortable": false,
+              "uiBehavior": null
+            }
+          ]
+        },
+        {
+          "layoutItems": [
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Description",
+              "layoutComponents": [
+                {
+                  "apiName": "Description",
+                  "componentType": "Field",
+                  "label": "Description"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": false,
+              "sortable": false,
+              "uiBehavior": "Edit"
+            },
+            {
+              "editableForNew": false,
+              "editableForUpdate": false,
+              "label": "",
+              "layoutComponents": [
+                {
+                  "apiName": null,
+                  "componentType": "EmptySpace"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": false,
+              "sortable": false,
+              "uiBehavior": null
+            }
+          ]
+        }
+      ],
+      "rows": 4,
+      "tabOrder": "LeftRight",
+      "useHeading": true
+    },
+    {
+      "collapsible": false,
+      "columns": 2,
+      "heading": "Informação de encerramento",
+      "id": "01Bbe000004t20kEAA",
+      "layoutRows": [
+        {
+          "layoutItems": [
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Front enviou dados completos?",
+              "layoutComponents": [
+                {
+                  "apiName": "DidFrontSendCompleteData__c",
+                  "componentType": "Field",
+                  "label": "Front enviou dados completos?"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": false,
+              "sortable": false,
+              "uiBehavior": "Edit"
+            },
+            {
+              "editableForNew": true,
+              "editableForUpdate": true,
+              "label": "Deveria ser FCR?",
+              "layoutComponents": [
+                {
+                  "apiName": "ShouldBeFCR__c",
+                  "componentType": "Field",
+                  "label": "Deveria ser FCR?"
+                }
+              ],
+              "lookupIdApiName": null,
+              "required": false,
+              "sortable": false,
+              "uiBehavior": "Edit"
+            }
+          ]
+        }
+      ],
+      "rows": 1,
+      "tabOrder": "LeftRight",
+      "useHeading": true
+    }
+  ]
+}

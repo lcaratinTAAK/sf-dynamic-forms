@@ -1,0 +1,918 @@
+/* ---------------------------------------------------------------------------
+   Paleta neutra fria, com um acento POR FONTE.
+   A cor não é decoração: ela codifica de onde a definição veio.
+--------------------------------------------------------------------------- */
+
+:root {
+  --bg: #0f1219;
+  --surface: #161b25;
+  --surface-2: #1d2432;
+  --border: #2a3242;
+  --border-soft: #222937;
+
+  --text: #e6eaf2;
+  --text-dim: #98a2b6;
+  --text-faint: #6b7688;
+
+  --uiapi: #4a9eff;
+  --uiapi-soft: rgba(74, 158, 255, 0.12);
+  --uiapi2: #2dd4bf;
+  --uiapi2-soft: rgba(45, 212, 191, 0.12);
+  --flow: #b98cff;
+  --flow-soft: rgba(185, 140, 255, 0.12);
+  --spec: #f59e6c;
+  --spec-soft: rgba(245, 158, 108, 0.12);
+
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --err: #f87171;
+
+  --accent: var(--uiapi);
+  --accent-soft: var(--uiapi-soft);
+
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+}
+
+[data-source='uiapi-v2'] {
+  --accent: var(--uiapi2);
+  --accent-soft: var(--uiapi2-soft);
+}
+
+[data-source='screenflow'] {
+  --accent: var(--flow);
+  --accent-soft: var(--flow-soft);
+}
+
+[data-source='formspec'] {
+  --accent: var(--spec);
+  --accent-soft: var(--spec-soft);
+}
+
+.badge {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.badge.warn {
+  background: rgba(251, 191, 36, 0.14);
+  color: var(--warn);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- layout --------------------------------------------------------------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px 24px;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-wrap: wrap;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  margin-right: auto;
+  min-width: 0;
+  flex: 1 1 240px;
+}
+.brand strong,
+.brand span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Os seletores viajam juntos: ou cabem na linha, ou descem como bloco. */
+.topbar-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.topbar-controls .control {
+  min-width: 0;
+}
+.topbar-controls select {
+  min-width: 180px;
+  max-width: 300px;
+}
+
+@media (max-width: 900px) {
+  .brand {
+    flex-basis: 100%;
+  }
+  .topbar-controls {
+    flex: 1 1 100%;
+  }
+  .topbar-controls select {
+    max-width: none;
+    width: 100%;
+  }
+}
+.brand strong {
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+.brand span {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1px;
+  background: var(--border-soft);
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 1100px) {
+  .main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.pane {
+  background: var(--bg);
+  padding: 22px;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.pane-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-faint);
+  margin: 0 0 16px;
+  font-weight: 600;
+}
+
+/* --- seletor de fonte ----------------------------------------------------- */
+
+.sources {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.source-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  padding: 7px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.12s, color 0.12s;
+}
+.source-btn:hover:not(.is-active) {
+  color: var(--text);
+}
+.source-btn.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.source-btn .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+}
+
+/* --- controles ------------------------------------------------------------ */
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.control > label {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+}
+
+select,
+input[type='text'],
+input[type='email'],
+input[type='tel'],
+input[type='url'],
+input[type='number'],
+input[type='date'],
+input[type='datetime-local'],
+textarea {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  min-width: 200px;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+textarea {
+  resize: vertical;
+  min-height: 76px;
+}
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- formulário ----------------------------------------------------------- */
+
+.section {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.section > header {
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+}
+.section > .body {
+  padding: 16px;
+  display: grid;
+  /* Seis colunas: mínimo múltiplo de 2 e 3, para metade e terço coexistirem. */
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 14px;
+}
+.section > .body > * {
+  grid-column: span 3;
+  min-width: 0;
+}
+@media (max-width: 720px) {
+  .section > .body > *,
+  .section > .body > .field.is-half,
+  .section > .body > .field.is-third {
+    grid-column: 1 / -1;
+  }
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.field.is-wide {
+  grid-column: 1 / -1;
+}
+/* Mesma especificidade de `.section > .body > *`, senão o seletor genérico
+   ganha e o bloco fica com meia largura. */
+.section > .body > .bloco-conteudo,
+.section > .body > .anexo-item,
+.section > .body > .field.is-wide {
+  grid-column: 1 / -1;
+}
+.field > label {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  min-width: 0;
+}
+.req {
+  color: var(--err);
+}
+.help {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.ruled {
+  font-size: 10.5px;
+  font-family: var(--mono);
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.checkbox-row input {
+  width: auto;
+  accent-color: var(--accent);
+}
+
+/* --- anexos --------------------------------------------------------------- */
+
+.attachments {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+  background: var(--surface);
+}
+.attachments.is-required {
+  border-color: var(--accent);
+}
+.attachments h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+.doc-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.doc-list li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.doc-list code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+/* --- botões --------------------------------------------------------------- */
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  padding: 9px 18px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: filter 0.12s;
+}
+.btn:hover {
+  filter: brightness(1.25);
+}
+.btn.ghost {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.btn.small {
+  padding: 6px 12px;
+  font-size: 12.5px;
+}
+
+/* --- preenchimento de teste ------------------------------------------------ */
+
+.demo-fill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.demo-fill-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+  font-weight: 600;
+  margin-right: 2px;
+}
+
+/* --- inspetor ------------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+.tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 8px 13px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab:hover {
+  color: var(--text-dim);
+}
+.tab.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+pre.json {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.65;
+  overflow-x: auto;
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.calls {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.call {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 11px 13px;
+  background: var(--surface);
+}
+.call .n {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--accent);
+}
+.call .label {
+  font-size: 12.5px;
+  font-weight: 600;
+  margin: 2px 0 5px;
+}
+.call .path {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  word-break: break-all;
+  line-height: 1.55;
+}
+
+.call-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 5px;
+}
+.call-head .label {
+  margin: 2px 0 0;
+}
+
+.replay {
+  margin-top: 11px;
+  padding-top: 11px;
+  border-top: 1px solid var(--border);
+}
+.replay-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 9px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.replay-meta b {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.replay-meta .trunc {
+  color: var(--warn);
+}
+
+/* alternador Envio / Retorno dentro do card de chamada */
+.replay-tabs {
+  display: inline-flex;
+  gap: 4px;
+}
+.replay-tabs .chip {
+  font: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 9px;
+  cursor: pointer;
+}
+.replay-tabs .chip:hover {
+  color: var(--text);
+}
+.replay-tabs .chip.is-active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.path.envio {
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.envio-nota {
+  margin-top: 7px;
+}
+.envio-nota .link {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+pre.json.small {
+  font-size: 10.5px;
+  line-height: 1.55;
+  max-height: 340px;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.note {
+  border-left: 2px solid var(--warn);
+  background: rgba(251, 191, 36, 0.07);
+  padding: 9px 13px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border-radius: 0 6px 6px 0;
+  margin-bottom: 9px;
+}
+.note.err {
+  border-color: var(--err);
+  background: rgba(248, 113, 113, 0.07);
+}
+.note.ok {
+  border-color: var(--ok);
+  background: rgba(74, 222, 128, 0.07);
+}
+
+/* --- criação real ---------------------------------------------------------- */
+
+.tab-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.create-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.create-bar .btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: none;
+}
+
+.create-result {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.create-result strong {
+  font-size: 13px;
+}
+
+dl.created {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 14px;
+  margin: 2px 0 0;
+  font-size: 12.5px;
+}
+dl.created dt {
+  color: var(--text-faint);
+}
+dl.created dd {
+  margin: 0;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+dl.created dd.mono {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.stats {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+}
+.stat b {
+  font-size: 19px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+.stat span {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.empty {
+  color: var(--text-faint);
+  font-size: 13px;
+  padding: 36px 0;
+  text-align: center;
+}
+
+.hidden-list {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* --- campos gravados pelo back-end ---------------------------------------- */
+
+.note code {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+dl.created.injected {
+  margin: 6px 0 8px;
+}
+dl.created.injected dt.mono {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--accent);
+}
+
+/* --- componentes exclusivos da fonte custom ------------------------------- */
+
+.bloco-conteudo {
+  grid-column: 1 / -1;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 5px 5px 0;
+  padding: 11px 14px;
+}
+.bloco-conteudo p { margin: 0; }
+
+.anexo-item {
+  grid-column: 1 / -1;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+}
+.anexo-item.is-required { border-color: var(--accent); }
+.anexo-item > label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+.anexo-item .cod {
+  font-family: var(--mono);
+  font-size: 10px;
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 6px;
+}
+.anexo-item input[type='file'] { font-size: 11.5px; }
+
+.section header .ruled { margin-left: 8px; }
+
+
+/* --- largura declarada na definição -------------------------------------- */
+
+/* A grade da seção tem 2 colunas; is-wide ocupa a linha, is-half uma coluna.
+   O Cognito usa uma grade de 24 com `cols`; aqui basta metade e terço, que é
+   o que os formulários realmente usam. */
+.field.is-half {
+  grid-column: span 3;
+}
+.field.is-third {
+  grid-column: span 2;
+}
+@media (max-width: 1000px) {
+  .field.is-third {
+    grid-column: span 3;
+  }
+}
+
+/* --- validação ------------------------------------------------------------ */
+
+.field.is-invalid input,
+.field.is-invalid select,
+.field.is-invalid textarea {
+  border-color: var(--erro, #c23934);
+  box-shadow: 0 0 0 2px rgba(194, 57, 52, 0.14);
+}
+.erro-validacao {
+  display: block;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--erro, #c23934);
+  margin-top: 5px;
+}
+
+/* Obrigatoriedade condicional: mesma família visual da regra de visibilidade,
+   com cor própria — são coisas diferentes e confundi-las esconde um bug. */
+.ruled.ruled-req {
+  color: #8a5b00;
+  background: #fdf3e0;
+}
+
+.lista-invalido {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+.lista-invalido li {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+
+/* --- lista repetível ------------------------------------------------------ */
+
+/* Precisa se ler como um bloco que o cliente multiplica, e não como mais uma
+   seção — o que ela produz do outro lado é diferente. */
+.section.is-lista {
+  border-color: #9fd6cf;
+}
+.section.is-lista > header {
+  background: #f0faf8;
+  border-bottom-color: #9fd6cf;
+}
+.ruled.ruled-lista {
+  color: #0b827c;
+  background: #dff3f0;
+}
+.lista-corpo {
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.lista-vazia {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin: 0;
+}
+.lista-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.lista-item-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+.lista-remover {
+  border: 0;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-dim);
+  padding: 0 4px;
+}
+.lista-remover:hover {
+  color: var(--erro, #c23934);
+}
+.lista-item > .body {
+  padding: 14px;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 14px;
+}
+.lista-item > .body > * {
+  grid-column: span 3;
+  min-width: 0;
+}
+.lista-item > .body > .field.is-wide,
+.lista-item > .body > .anexo-item {
+  grid-column: 1 / -1;
+}
+.btn-lista {
+  align-self: flex-start;
+}
+.btn-lista:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
