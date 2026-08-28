@@ -150,31 +150,49 @@ export async function sfPost(path, body, { retryOn401 = true } = {}) {
 const v = () => `/services/data/v${config.apiVersion}`;
 
 /**
- * Cria o registro e devolve os dados dele numa única requisição.
+ * Cria o registro e, quando o formulário tem listas, os filhos junto.
  *
- * Usa Composite com `allOrNone`, encadeando as duas operações por referência:
- * o GET aponta para `@{novoRegistro.id}`, que só existe depois do POST.
- * Diferente da ui-api, o recurso `sobjects` É suportado pelo Composite.
+ * O pai ainda não existe quando o cliente preenche, então os itens não têm o
+ * id dele para gravar. O composite resolve dentro da própria transação: o
+ * `referenceId` da primeira subrequisição vira `@{refPai.id}` nas seguintes.
+ *
+ * `allOrNone` porque um Caso sem os membros que o justificam é pior que erro
+ * nenhum — a pessoa reenviaria e criaria um Caso duplicado.
+ *
+ * Recebe o payload já montado pelo contrato, e não só o registro: é ele que
+ * sabe quais itens de lista existem e em qual objeto cada um grava.
  */
-export async function createRecordComposite(objectApiName, record) {
+export async function createRecordComposite(objectApiName, payload) {
   const version = `v${config.apiVersion}`;
+  const REF_PAI = 'refPai';
 
-  return sfPost(`${v()}/composite`, {
-    allOrNone: true,
-    compositeRequest: [
-      {
-        method: 'POST',
-        url: `/services/data/${version}/sobjects/${objectApiName}`,
-        referenceId: 'novoRegistro',
-        body: record,
-      },
-      {
-        method: 'GET',
-        url: `/services/data/${version}/sobjects/${objectApiName}/@{novoRegistro.id}?fields=Id,CaseNumber,Status,CreatedDate`,
-        referenceId: 'registroCriado',
-      },
-    ],
-  });
+  // Compatibilidade: aceita tanto o payload completo quanto só o registro.
+  const registro = payload?.request?.body?.compositeRequest
+    ? payload.request.body.compositeRequest[0].body
+    : (payload?.request?.body ?? payload);
+  const itens = payload?.listas ?? [];
+
+  const compositeRequest = [
+    {
+      method: 'POST',
+      url: `/services/data/${version}/sobjects/${objectApiName}`,
+      referenceId: REF_PAI,
+      body: registro,
+    },
+    ...itens.map((item, i) => ({
+      method: 'POST',
+      url: `/services/data/${version}/sobjects/${item.object}`,
+      referenceId: `item${i + 1}`,
+      body: { ...item.record, [item.relationshipField]: `@{${REF_PAI}.id}` },
+    })),
+    {
+      method: 'GET',
+      url: `/services/data/${version}/sobjects/${objectApiName}/@{${REF_PAI}.id}?fields=Id,CaseNumber,Status,CreatedDate`,
+      referenceId: 'registroCriado',
+    },
+  ];
+
+  return sfPost(`${v()}/composite`, { allOrNone: true, compositeRequest });
 }
 
 // ---------------------------------------------------------------------------
@@ -442,5 +460,96 @@ export async function whoami() {
     instanceUrl,
     apiVersion: config.apiVersion,
     user: identity ? { id: identity.id, name: identity.displayName, username: identity.username } : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Schema por SOQL — a alternativa ao ui-api/object-info
+// ---------------------------------------------------------------------------
+
+/**
+ * As colunas do EntityParticle que substituem o object-info.
+ *
+ * `IsNillable` é a obrigatoriedade no objeto, `IsCreatable` é o FLS do usuário
+ * corrente, e `InlineHelpText` é o texto de ajuda do campo — os três que
+ * faltariam no FieldDefinition, que não expõe help text.
+ */
+const COLUNAS_SCHEMA = [
+  'QualifiedApiName', 'Label', 'DataType', 'Length', 'Precision', 'Scale',
+  'IsNillable', 'IsCalculated', 'InlineHelpText', 'IsDependentPicklist',
+  'IsCreatable', 'IsUpdatable',
+  // DurableId é o que amarra o campo dependente ao seu controlador: o
+  // ControllingFieldDefinitionId do FieldDefinition aponta para ele.
+  'DurableId',
+].join(', ');
+
+/**
+ * Metadado dos campos + catálogo de formulários, numa viagem só.
+ *
+ * Troca `ui-api/object-info` por SOQL em `EntityParticle`. O object-info devolve
+ * TODOS os campos do objeto com 36 atributos cada — 518 KB em Case — e a UI API
+ * não aceita filtro. O EntityParticle é consultável, então dá para escolher as
+ * colunas, e por ser SOQL comum entra no mesmo composite do catálogo.
+ *
+ * As picklists continuam na UI API: ela é a única que respeita Record Type e
+ * devolve as dependências, e não pode ir em composite — o endpoint recusa
+ * recursos de ui-api com INVALID_BATCH_REQUEST.
+ */
+export async function schemaECatalogo(objectApiName, { catalogoSoql = null } = {}) {
+  const version = v();
+  const url = (q) => `${version}/query?q=${encodeURIComponent(q.replace(/\s+/g, ' ').trim())}`;
+
+  const qSchema = `SELECT ${COLUNAS_SCHEMA} FROM EntityParticle
+    WHERE EntityDefinition.QualifiedApiName = '${objectApiName}' AND IsCreatable = true`;
+
+  // Picklist dependente: quem controla quem.
+  //
+  // Nem o EntityParticle nem o picklist-values dizem o NOME do campo
+  // controlador — o primeiro só marca `IsDependentPicklist`, o segundo devolve
+  // `controllerValues` (valor do controlador → índice) sem nomeá-lo. Sem esse
+  // nome o formulário não sabe qual campo observar para filtrar as opções.
+  //
+  // O FieldDefinition tem `ControllingFieldDefinitionId`, no mesmo formato do
+  // `DurableId` — então uma consulta resolve o par, e ela cabe aqui dentro.
+  const qDependentes = `SELECT DurableId, QualifiedApiName, ControllingFieldDefinitionId
+    FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = '${objectApiName}'
+    AND ControllingFieldDefinitionId != null`;
+
+  const subrequests = [
+    { method: 'GET', url: url(qSchema) },
+    { method: 'GET', url: url(qDependentes) },
+  ];
+  if (catalogoSoql) subrequests.push({ method: 'GET', url: url(catalogoSoql) });
+
+  const corpo = { batchRequests: subrequests };
+  const request = { method: 'POST', url: `${version}/composite/batch`, body: corpo };
+
+  const raw = await sfPost(request.url, corpo);
+  const [schema, dependentes, catalogo] = raw.results ?? [];
+
+  const campos = schema?.result?.records ?? [];
+  const linhasDep = dependentes?.result?.records ?? [];
+
+  // O ControllingFieldDefinitionId aponta para o DurableId de OUTRO campo. A
+  // consulta de dependentes só traz quem TEM controlador, e o controlador
+  // normalmente não tem — então o índice vem do schema, que já traz todos os
+  // campos com o DurableId. Custo zero: a coluna veio junto.
+  const porDurable = {};
+  for (const c of campos) if (c.DurableId) porDurable[c.DurableId] = c.QualifiedApiName;
+
+  const controladorDe = {};
+  for (const d of linhasDep) {
+    const nome = porDurable[d.ControllingFieldDefinitionId];
+    // Sem resolver o nome, guarda o id: um vínculo opaco ainda é melhor que
+    // nenhum, e deixa visível que faltou resolver.
+    controladorDe[d.QualifiedApiName] = nome ?? d.ControllingFieldDefinitionId;
+  }
+
+  return {
+    raw,
+    request,
+    campos,
+    controladorDe,
+    catalogo: catalogo?.result?.records ?? [],
   };
 }

@@ -19,6 +19,7 @@ import {
   discoverFormCatalog,
   sfGet,
   SalesforceError,
+  schemaECatalogo,
 } from './salesforce.js';
 import { buildSubmitPayload } from './contract.js';
 import * as uiapi from './adapters/uiapi.js';
@@ -264,6 +265,24 @@ app.post('/api/replay', async (req, res) => {
     }
   }
 
+  // `schema:<Objeto>` — metadado dos campos + catálogo, em composite/batch.
+  if (typeof replayId === 'string' && replayId.startsWith('schema:')) {
+    const objeto = replayId.slice('schema:'.length);
+    if (!/^[A-Za-z0-9_]{1,64}$/.test(objeto)) {
+      return res.status(400).json({ error: `Objeto inválido: ${objeto}` });
+    }
+    const inicio = Date.now();
+    try {
+      const qCatalogo =
+        `SELECT Id, Name, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c ` +
+        `FROM SI_FormSpec__c WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name`;
+      const { raw, request } = await schemaECatalogo(objeto, { catalogoSoql: qCatalogo });
+      return responder(res, inicio, path, raw, request);
+    } catch (err) {
+      return res.status(502).json({ path, error: err.message, preview: null });
+    }
+  }
+
   // `catalog:<SOURCE>` lista; `catalog:<SOURCE>:<Id>` resolve um formulário só.
   if (typeof replayId === 'string' && replayId.startsWith('catalog:')) {
     const [source, formId = null] = replayId.slice('catalog:'.length).split(':');
@@ -330,17 +349,27 @@ app.post('/api/create-record', async (req, res) => {
       });
     }
 
-    const composite = await createRecordComposite(contract.object, payload.request.body);
-    const [criacao, leitura] = composite.compositeResponse ?? [];
+    // O payload inteiro, e não só o registro: é ele que carrega os itens de lista.
+    const composite = await createRecordComposite(contract.object, payload);
+    const respostas = composite.compositeResponse ?? [];
+    const criacao = respostas[0];
+    const leitura = respostas[respostas.length - 1];
+    const filhos = respostas.slice(1, -1);
 
-    // Composite devolve 200 no envelope mesmo quando um subrequest falha.
-    if (!criacao || criacao.httpStatusCode >= 300) {
-      const erro = Array.isArray(criacao?.body) ? criacao.body[0] : criacao?.body;
+    // Composite devolve 200 no envelope mesmo quando um subrequest falha. E
+    // quando o PAI falha, os filhos reportam "Could not find the referenced
+    // operation refPai" — que é sintoma, não causa. Por isso o erro do pai vem
+    // primeiro, e o dos filhos só se ele tiver passado.
+    const falhou = respostas.find((r) => r && r.httpStatusCode >= 300);
+    if (falhou) {
+      const ehPai = falhou === criacao;
+      const erro = Array.isArray(falhou.body) ? falhou.body[0] : falhou.body;
       return res.status(422).json({
         ok: false,
-        error: erro?.message || 'O Salesforce recusou a criação do registro.',
+        error: erro?.message || 'O Salesforce recusou a criação.',
         errorCode: erro?.errorCode ?? null,
         fields: erro?.fields ?? [],
+        onde: ehPai ? contract.object : `item da lista (${falhou.referenceId})`,
         composite,
       });
     }
@@ -349,6 +378,10 @@ app.post('/api/create-record', async (req, res) => {
       ok: true,
       id: criacao.body?.id ?? null,
       record: leitura?.body ?? null,
+      filhos: filhos.map((f, i) => ({
+        object: payload.listas?.[i]?.object ?? null,
+        id: f.body?.id ?? null,
+      })),
       attachmentsNote: Array.isArray(values.__attachments) && values.__attachments.length
         ? `${values.__attachments.length} anexo(s) selecionado(s) não foram enviados: a POC não faz upload de arquivo.`
         : null,

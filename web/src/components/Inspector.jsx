@@ -136,7 +136,14 @@ function Call({ call, index }) {
         </button>
       </div>
 
-      <div className="path">{call.path}</div>
+      {/* O verbo importa: composite é POST com corpo, e é o corpo que diz o
+          que foi pedido — a URL sozinha não conta nada nesse caso. */}
+      <div className="path">
+        <span className={`verbo verbo-${(call.method || 'GET').toLowerCase()}`}>
+          {call.method || 'GET'}
+        </span>
+        {call.path}
+      </div>
 
       {estado === 'pronto' && resultado && (
         <div className="replay">

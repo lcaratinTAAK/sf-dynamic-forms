@@ -28,11 +28,12 @@
  * mexer no campo.
  */
 
-import { soql, getObjectInfo, getPicklistValues } from '../salesforce.js';
+import { soql, getPicklistValues, schemaECatalogo } from '../salesforce.js';
 import {
   emptyContract,
   makeField,
-  applyObjectInfo,
+  applyEntityParticle,
+  indexarCampos,
   applyPicklistValues,
   normalizeOperator,
   backendFieldsFromForm,
@@ -85,9 +86,31 @@ export async function listarFormularios() {
 
 export async function buildContract({ formId, objectApiName }) {
   const calls = [];
-  const track = (label, path) => calls.push({ label, path });
+  const track = (label, path, extra = {}) => calls.push({ label, path, ...extra });
 
-  // 1. A especificação inteira — uma chamada.
+  // 1. Metadado dos campos + catálogo de formulários, numa viagem só.
+  //
+  //    Vem PRIMEIRO porque é o que alimenta o seletor: sem o catálogo não há
+  //    formulário para escolher, e o `formId` que chega aqui saiu dele. A
+  //    ordem no inspetor reflete a ordem real das chamadas.
+  //
+  //    Substitui `ui-api/object-info`, que devolve TODOS os campos com 36
+  //    atributos cada — 518 KB em Case — e não aceita filtro. O EntityParticle
+  //    é SOQL comum, então escolhe as colunas e cabe no mesmo composite.
+  const qCatalogo =
+    `SELECT Id, Name, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c ` +
+    `FROM ${OBJ} WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name`;
+
+  const schema = await schemaECatalogo(objectApiName, { catalogoSoql: qCatalogo });
+  track(
+    'Metadado dos campos + catálogo de formulários',
+    `/composite/batch → EntityParticle (${objectApiName}) + ${OBJ} (formulários)`,
+    { replayId: `schema:${objectApiName}`, method: 'POST' }
+  );
+  const indiceDeCampos = indexarCampos(schema.campos);
+  const controladorDe = schema.controladorDe ?? {};
+
+  // 2. A especificação do formulário escolhido — uma chamada.
   const q = querySpec(formId);
   track('Especificação do formulário', `/query?q=${q}`);
   const spec = await soql(q);
@@ -98,7 +121,7 @@ export async function buildContract({ formId, objectApiName }) {
 
   const objeto = raiz.ObjectApiName__c || objectApiName;
 
-  // 2. Record Type de destino — a especificação guarda o DeveloperName, que é
+  // 3. Record Type de destino — a especificação guarda o DeveloperName, que é
   //    o que sobrevive a um deploy entre orgs; o Id é resolvido na leitura.
   const qRt =
     `SELECT Id, Name FROM RecordType WHERE SobjectType = '${objeto}' ` +
@@ -107,18 +130,16 @@ export async function buildContract({ formId, objectApiName }) {
   const rtRow = await soql(qRt);
   const rt = rtRow.records?.[0];
 
-  // 3 e 4. Schema e picklists — a UI API continua sendo a fonte, porque
-  //        reinventar isso seria criar uma segunda verdade sobre o campo.
-  track('Schema do objeto', `/ui-api/object-info/${objeto}`);
-  const objectInfo = await getObjectInfo(objeto);
-
+  // 4. Picklists — continuam na UI API. É a única fonte que respeita Record
+  //    Type e devolve as dependências, e não entra em composite: o endpoint
+  //    recusa recursos de ui-api com INVALID_BATCH_REQUEST.
   let picklists = null;
   if (rt) {
     track('Valores de picklist', `/ui-api/object-info/${objeto}/picklist-values/${rt.Id}`);
     picklists = await getPicklistValues(objeto, rt.Id);
   }
 
-  const contract = specToContract(linhas, { formId, objectApiName: objeto, objectInfo, picklists, rt });
+  const contract = specToContract(linhas, { formId, objectApiName: objeto, indiceDeCampos, controladorDe, picklists, rt });
   contract.diagnostics.calls = calls;
   return contract;
 }
@@ -126,7 +147,7 @@ export async function buildContract({ formId, objectApiName }) {
 /**
  * Tradução pura: linhas de SI_FormSpec__c -> contrato. Sem I/O, testável offline.
  */
-export function specToContract(linhas, { formId, objectApiName, objectInfo, picklists, rt }) {
+export function specToContract(linhas, { formId, objectApiName, indiceDeCampos, controladorDe = {}, picklists, rt }) {
   const contract = emptyContract('FORM_SPEC', objectApiName);
   const raiz = linhas.find((r) => r.Id === formId);
   const tipo = (r) => r.RecordType?.DeveloperName;
@@ -289,7 +310,7 @@ export function specToContract(linhas, { formId, objectApiName, objectInfo, pick
         readOnly: r.IsReadOnly__c === true,
         visibility: visibilidadeDe(r),
       });
-      campo = applyObjectInfo(campo, objectInfo);
+      campo = applyEntityParticle(campo, indiceDeCampos, controladorDe);
       if (picklists) campo = applyPicklistValues(campo, picklists);
 
       // O que a especificação diz vence o schema, porque é escolha de

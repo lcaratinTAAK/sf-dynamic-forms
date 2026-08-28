@@ -101,6 +101,72 @@ export function makeField(apiName, overrides = {}) {
 }
 
 /**
+ * Índice de campos vindo do EntityParticle, para busca por API name.
+ *
+ * O object-info devolve um objeto já indexado; o SOQL devolve linhas. Esta
+ * função faz a ponte, e é o único lugar que conhece as duas formas.
+ */
+export function indexarCampos(registros) {
+  const mapa = {};
+  for (const r of registros ?? []) mapa[r.QualifiedApiName] = r;
+  return mapa;
+}
+
+/**
+ * Enriquece um campo com o schema vindo do EntityParticle.
+ *
+ * Mesma responsabilidade do `applyObjectInfo`, com a fonte trocada:
+ *
+ *   object-info            EntityParticle
+ *   ───────────────────    ────────────────
+ *   label                  Label
+ *   dataType               DataType        (minúsculo lá: "picklist", "string")
+ *   length                 Length
+ *   inlineHelpText         InlineHelpText
+ *   required               !IsNillable
+ *   controllerName         —  (só IsDependentPicklist; o controlador vem na picklist)
+ */
+export function applyEntityParticle(field, indice, controladorDe = {}) {
+  const meta = indice?.[field.apiName];
+  if (!meta) return field;
+
+  return {
+    ...field,
+    label: meta.Label ?? field.label,
+    dataType: normalizarTipo(meta.DataType) ?? field.dataType,
+    helpText: meta.InlineHelpText ?? null,
+    maxLength: meta.Length ?? null,
+    // `required` aqui é obrigatoriedade do OBJETO; a do formulário tem
+    // precedência e já veio preenchida pelo adaptador.
+    required: field.required || meta.IsNillable === false,
+    readOnly: field.readOnly || meta.IsCreatable === false,
+    // Picklist dependente: o nome do campo controlador. Nem o EntityParticle
+    // nem o picklist-values entregam isso sozinhos — o primeiro só marca
+    // IsDependentPicklist, o segundo devolve controllerValues sem nomear quem
+    // controla. Vem do FieldDefinition, resolvido pelo DurableId.
+    controllerField: controladorDe[field.apiName] ?? field.controllerField ?? null,
+  };
+}
+
+/**
+ * O EntityParticle nomeia os tipos em minúsculo e com algumas variações; o
+ * renderizador espera o vocabulário do object-info.
+ */
+function normalizarTipo(bruto) {
+  if (!bruto) return null;
+  const t = String(bruto).toLowerCase();
+  const mapa = {
+    string: 'String', textarea: 'TextArea', picklist: 'Picklist',
+    multipicklist: 'MultiPicklist', boolean: 'Boolean', date: 'Date',
+    datetime: 'DateTime', time: 'Time', email: 'Email', phone: 'Phone',
+    url: 'Url', currency: 'Currency', percent: 'Percent', double: 'Double',
+    int: 'Int', integer: 'Int', reference: 'Reference', id: 'Id',
+    encryptedstring: 'String', address: 'Address', location: 'Location',
+  };
+  return mapa[t] ?? (bruto.charAt(0).toUpperCase() + bruto.slice(1));
+}
+
+/**
  * Enriquece um campo do contrato com o schema vindo de `ui-api/object-info`.
  * Usado pelos DOIS adaptadores — a estrutura muda, o schema não.
  */
