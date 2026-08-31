@@ -526,14 +526,38 @@ function Modelo() {
 
 /* ── 3. Arquitetura ──────────────────────────────────────────────────────── */
 
+/**
+ * Arquitetura.
+ *
+ * A versão anterior deste diagrama errava em duas coisas, e as duas confundiam
+ * quem lia:
+ *
+ *   - Uma seta só, da esquerda para a direita, atravessando canais → BFF →
+ *     Salesforce. Mas o PEDIDO vai numa direção e o DADO volta na outra;
+ *     desenhar uma seta só faz parecer que a definição nasce nos canais.
+ *   - O avaliador de regras aparecia como caixa na coluna do adaptador, como
+ *     se fosse peça do Salesforce — enquanto o próprio rodapé dizia que ele
+ *     roda nos dois lados. Agora ele aparece ONDE roda, duas vezes.
+ *
+ * As setas são numeradas porque leitura e escrita compartilham as mesmas
+ * colunas: sem a numeração, não dá para saber o que acontece antes do quê.
+ */
 function Arquitetura() {
+  const CANAIS = ['Magic Link', 'Site / App', 'Bot'];
+  const FONTES = [
+    ['SI_FormSpec__c', 'a definição'],
+    ['RecordType', 'o Id do destino'],
+    ['EntityParticle', 'o schema dos campos'],
+    ['ui-api picklists', 'valores por Record Type'],
+  ];
+
   return (
     <Secao titulo="Onde cada peça entra" chapeu="Arquitetura">
       <svg
         className="diagrama"
-        viewBox="0 0 900 330"
+        viewBox="0 0 900 460"
         role="img"
-        aria-label="Canais consomem o BFF, que traduz SI_FormSpec__c para o contrato normalizado"
+        aria-label="Os canais falam com o BFF, e só o BFF fala com o Salesforce. A leitura da definição e a criação do Caso são dois caminhos distintos."
       >
         <defs>
           <marker id="c-seta" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
@@ -541,101 +565,84 @@ function Arquitetura() {
           </marker>
         </defs>
 
-        <text x="12" y="20" className="d-titulo">
-          CANAIS
-        </text>
-        {['Magic Link', 'Site / App', 'Bot'].map((c, i) => (
+        {/* ── coluna 1: canais ── */}
+        <text x="12" y="20" className="d-titulo">CANAIS</text>
+        {CANAIS.map((c, i) => (
           <g key={c}>
-            <rect className="d-box" x="12" y={38 + i * 52} width="128" height="38" rx="5" />
-            <text className="d-label" x="76" y={62 + i * 52} textAnchor="middle">
-              {c}
-            </text>
-          </g>
-        ))}
-        <text className="d-nota" x="12" y="212">
-          só conhecem o contrato
-        </text>
-
-        <line className="d-linha" x1="148" y1="115" x2="205" y2="115" markerEnd="url(#c-seta)" />
-
-        <text x="212" y="20" className="d-titulo">
-          BFF
-        </text>
-        <rect className="d-box d-destaque" x="212" y="38" width="200" height="194" rx="6" />
-        <text className="d-sub" x="312" y="62" textAnchor="middle">
-          contrato normalizado
-        </text>
-        {['sections[].fields[]', 'attachments', 'backendFields', 'diagnostics'].map((t, i) => (
-          <g key={t}>
-            <rect className="d-chip" x="230" y={76 + i * 38} width="164" height="28" rx="4" />
-            <text className="d-mono" x="312" y={95 + i * 38} textAnchor="middle">
-              {t}
-            </text>
+            <rect className="d-box" x="12" y={40 + i * 46} width="132" height="36" rx="5" />
+            <text className="d-label" x="78" y={63 + i * 46} textAnchor="middle">{c}</text>
           </g>
         ))}
 
-        <line className="d-linha" x1="420" y1="115" x2="477" y2="115" markerEnd="url(#c-seta)" />
+        {/* o avaliador, onde ele de fato roda (1 de 2) */}
+        <rect className="fase" x="12" y="192" width="132" height="54" rx="6" />
+        <text className="d-sub" x="78" y="214" textAnchor="middle">avaliador</text>
+        <text className="d-nota" x="78" y="232" textAnchor="middle">a cada tecla</text>
 
-        <text x="484" y="20" className="d-titulo">
-          ADAPTADOR
-        </text>
-        <rect className="d-box d-destaque" x="484" y="38" width="176" height="86" rx="5" />
-        <text className="d-label" x="572" y="64" textAnchor="middle">
-          FORM_SPEC
-        </text>
-        <text className="d-sub" x="572" y="84" textAnchor="middle">
-          specToContract()
-        </text>
-        <text className="d-sub" x="572" y="102" textAnchor="middle">
-          função pura, sem I/O
-        </text>
+        {/* ── coluna 2: BFF ── */}
+        <text x="300" y="20" className="d-titulo">BFF</text>
 
-        <rect className="d-box" x="484" y="146" width="176" height="86" rx="5" />
-        <text className="d-label" x="572" y="172" textAnchor="middle">
-          Avaliador de regras
-        </text>
-        <text className="d-sub" x="572" y="192" textAnchor="middle">
-          isVisible · isRequired
-        </text>
-        <text className="d-sub" x="572" y="210" textAnchor="middle">
-          validar
-        </text>
+        <rect className="d-box d-destaque" x="300" y="40" width="230" height="112" rx="6" />
+        <text className="d-label" x="415" y="66" textAnchor="middle">Montar</text>
+        <text className="d-sub" x="415" y="88" textAnchor="middle">lê a definição e o schema</text>
+        <text className="d-sub" x="415" y="108" textAnchor="middle">resolve o Record Type</text>
+        <text className="d-sub" x="415" y="128" textAnchor="middle">devolve pronto para desenhar</text>
 
-        <line className="d-linha" x1="668" y1="81" x2="726" y2="110" markerEnd="url(#c-seta)" />
+        <rect className="d-box d-destaque" x="300" y="252" width="230" height="96" rx="6" />
+        <text className="d-label" x="415" y="278" textAnchor="middle">Enviar</text>
+        <text className="d-sub" x="415" y="300" textAnchor="middle">avalia de novo</text>
+        <text className="d-sub" x="415" y="320" textAnchor="middle">monta o payload</text>
 
-        <text x="734" y="20" className="d-titulo">
-          SALESFORCE
-        </text>
-        <rect className="d-box" x="734" y="38" width="154" height="62" rx="5" />
-        <text className="d-mono d-forte" x="811" y="64" textAnchor="middle">
-          SI_FormSpec__c
-        </text>
-        <text className="d-sub" x="811" y="84" textAnchor="middle">
-          a definição
-        </text>
+        {/* o avaliador, onde ele de fato roda (2 de 2) */}
+        <rect className="fase" x="300" y="192" width="230" height="46" rx="6" />
+        <text className="d-sub" x="415" y="212" textAnchor="middle">avaliador — o MESMO código</text>
+        <text className="d-nota" x="415" y="230" textAnchor="middle">ao montar o payload</text>
 
-        <rect className="d-box" x="734" y="112" width="154" height="62" rx="5" />
-        <text className="d-mono d-forte" x="811" y="138" textAnchor="middle">
-          EntityParticle
-        </text>
-        <text className="d-sub" x="811" y="158" textAnchor="middle">
-          o schema
-        </text>
+        {/* ── coluna 3: Salesforce ── */}
+        <text x="628" y="20" className="d-titulo">SALESFORCE</text>
+        {FONTES.map(([nome, o], i) => (
+          <g key={nome}>
+            <rect className="d-box" x="628" y={40 + i * 44} width="260" height="36" rx="5" />
+            <text className="d-mono d-forte" x="648" y={63 + i * 44}>{nome}</text>
+            <text className="d-sub" x="876" y={63 + i * 44} textAnchor="end">{o}</text>
+          </g>
+        ))}
 
-        <rect className="d-box" x="734" y="186" width="154" height="62" rx="5" />
-        <text className="d-mono d-forte" x="811" y="212" textAnchor="middle">
-          Case
-        </text>
-        <text className="d-sub" x="811" y="232" textAnchor="middle">
-          o destino
-        </text>
+        <rect className="d-box" x="628" y="252" width="260" height="60" rx="5" />
+        <text className="d-mono d-forte" x="758" y="278" textAnchor="middle">Case + registros filhos</text>
+        <text className="d-sub" x="758" y="298" textAnchor="middle">uma transação, allOrNone</text>
 
-        <text className="d-rodape" x="12" y="292">
-          O avaliador roda nos DOIS lados — no navegador a cada tecla, no servidor ao montar o
-          payload.
+        {/* ── setas: LEITURA ── */}
+        <line className="d-linha" x1="150" y1="66" x2="294" y2="66" markerEnd="url(#c-seta)" />
+        <text className="d-nota" x="222" y="56" textAnchor="middle">1 · pede o formulário</text>
+
+        <line className="d-linha" x1="536" y1="66" x2="622" y2="66" markerEnd="url(#c-seta)" />
+        <text className="d-nota" x="579" y="56" textAnchor="middle">2 · consulta</text>
+
+        <line className="d-linha" x1="622" y1="130" x2="536" y2="130" markerEnd="url(#c-seta)" />
+        <text className="d-nota" x="579" y="120" textAnchor="middle">3 · a definição</text>
+
+        <line className="d-linha" x1="294" y1="130" x2="150" y2="130" markerEnd="url(#c-seta)" />
+        <text className="d-nota" x="222" y="120" textAnchor="middle">4 · o formulário</text>
+
+        {/* ── setas: ESCRITA ── */}
+        <line className="d-linha" x1="150" y1="282" x2="294" y2="282" markerEnd="url(#c-seta)" />
+        <text className="d-nota" x="222" y="272" textAnchor="middle">5 · o preenchimento</text>
+
+        <line className="d-linha" x1="536" y1="282" x2="622" y2="282" markerEnd="url(#c-seta)" />
+        <text className="d-nota" x="579" y="272" textAnchor="middle">6 · cria</text>
+
+        <text className="d-rodape" x="12" y="380">
+          Só o BFF fala com a org. Os canais não sabem de onde a definição veio — trocar a fonte
         </text>
-        <text className="d-rodape" x="12" y="312">
-          É por isso que a tela e o envio nunca discordam sobre o que está oculto ou inválido.
+        <text className="d-rodape" x="12" y="398">
+          no Salesforce não muda nada do lado deles.
+        </text>
+        <text className="d-rodape" x="12" y="422">
+          O avaliador roda duas vezes, e é O MESMO CÓDIGO. Duas implementações divergiriam — e a
+        </text>
+        <text className="d-rodape" x="12" y="440">
+          divergência aparece como campo exigido que o usuário não consegue ver.
         </text>
       </svg>
     </Secao>
@@ -797,8 +804,15 @@ function Sequencia() {
       </svg>
 
       <p className="info-nota">
-        A chamada 01 é a única que o cliente não espera duas vezes — e é justamente a que carrega o
-        schema. Se ela fosse por formulário, o custo do fluxo dobraria a cada troca no seletor.
+        As duas chamadas de montagem rodam <strong>a cada troca no seletor</strong> — inclusive o
+        schema do objeto, que é o pedaço grande e não muda entre formulários do mesmo objeto.
+        Guardá-lo em cache por sessão é a otimização mais óbvia daqui, e ainda não está aplicada.
+      </p>
+      <p className="info-nota aviso">
+        Elas também rodam <strong>em sequência</strong>, e não precisariam: a de picklists só depende
+        do Id do Record Type. Resolvendo esse Id junto do catálogo, na abertura, as duas passam a
+        caber em paralelo — medido, 942 ms contra 761 ms. É o que a RFC recomenda, e é uma
+        divergência conhecida: <strong>a aplicação ainda não faz isso</strong>.
       </p>
     </Secao>
   );

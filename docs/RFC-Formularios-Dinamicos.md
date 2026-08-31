@@ -76,29 +76,35 @@ Os 53 formulários do Cognito foram extraídos e catalogados: todo tipo de campo
 
 ## Visão geral
 
+As setas são numeradas porque leitura e escrita compartilham as mesmas colunas — sem a numeração não dá para saber o que acontece antes do quê. **O pedido vai numa direção e o dado volta na outra.**
+
 ```
-  CANAIS                    CONSUMIDOR                     SALESFORCE
-  ──────                    ──────────                     ──────────
+  CANAIS                   CONSUMIDOR                    SALESFORCE
+  ──────                   ──────────                    ──────────
 
-  Magic Link  ─┐            ┌──────────────────┐           SI_FormSpec__c
-  Site / App  ─┼──────────▶ │  leitura das     │ ────────▶  a definição
-  Bot         ─┘            │  APIs REST       │
-                            │                  │           RecordType
-                            │  monta a tela e  │            o destino
-                            │  avalia as       │
-                            │  regras          │           EntityParticle
-                            └──────────────────┘            o schema dos campos
-                                     │
-                                     │  cria o Caso           ui-api
-                                     └──────────────────▶     picklists por RT
-
-                                                            Case (+ filhos)
-                                                             o destino
+ ┌────────────┐  1 pede   ┌──────────────────┐ 2 consulta  ┌──────────────────┐
+ │ Magic Link │ ────────▶ │     MONTAR       │ ──────────▶ │ SI_FormSpec__c   │
+ ├────────────┤           │                  │             │ RecordType       │
+ │ Site / App │           │ lê a definição   │ 3 devolve   │ EntityParticle   │
+ ├────────────┤ ◀──────── │ e o schema       │ ◀────────── │ ui-api picklists │
+ │    Bot     │ 4 devolve └──────────────────┘             └──────────────────┘
+ └────────────┘
+                                                           ┌──────────────────┐
+ ┌ ─ ─ ─ ─ ─ ─┐  5 envia  ┌──────────────────┐ 6 cria      │ Case + filhos    │
+   avaliador   ────────▶  │     ENVIAR       │ ──────────▶ │ uma transação    │
+   a cada tecla           │                  │             └──────────────────┘
+ └ ─ ─ ─ ─ ─ ─┘           │ ┌ ─ ─ ─ ─ ─ ─ ─┐ │
+                          │   avaliador      │
+                          │   ao montar      │
+                          │ └ ─ ─ ─ ─ ─ ─ ─┘ │
+                          └──────────────────┘
 ```
 
-**A avaliação das regras acontece do lado do consumidor**, e em dois momentos: ao desenhar a tela (quais componentes aparecem, quais estão exigidos) e ao montar o envio (o que vai no payload, o que trava). O Salesforce não avalia regra nenhuma em tempo de leitura — ele devolve a definição, e a definição contém as condições em forma de dado.
+**A avaliação das regras acontece do lado do consumidor**, e em dois momentos: ao desenhar a tela (quais componentes aparecem, quais estão exigidos) e ao montar o envio (o que vai no payload, o que trava). O Salesforce não avalia regra nenhuma em tempo de leitura — devolve a definição, e a definição contém as condições em forma de dado.
 
 Recomendação: usar **o mesmo código** nos dois momentos. Se a checagem da tela e a do envio forem implementações distintas, elas divergem, e a divergência aparece como campo exigido que o usuário não consegue ver.
+
+Nada nos canais conhece a origem da definição. Trocar a fonte no Salesforce não muda nada do lado deles.
 
 ---
 
@@ -534,6 +540,26 @@ O retorno completo do Record Type pode passar de 250 KB, enquanto por campo fica
 **`POST /services/data/v66.0/composite`**, com `allOrNone: true`.
 
 O Caso ainda não existe quando o cliente preenche, então os itens de lista não têm o Id do pai para gravar. O composite resolve dentro da própria transação: o `referenceId` da primeira subrequisição vira `@{refPai.id}` nas seguintes.
+
+```
+  POST /composite  ·  allOrNone: true  ·  UMA transação
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  ┌──────────────────────┐                ┌───────────────────────┐  │
+  │  │ referenceId: refPai  │ ─────────────▶ │ registroCriado · GET  │  │
+  │  │ POST /sobjects/Case  │                │ Id, CaseNumber, Status│  │
+  │  │ campos + backendF.   │                └───────────────────────┘  │
+  │  └──────────┬───────────┘                                           │
+  │             │            ┌────────────────────────────────────┐     │
+  │             ├──────────▶ │ item1 · POST CaseMember__c         │     │
+  │             │            │ Case__c: "@{refPai.id}"            │     │
+  │             │            └────────────────────────────────────┘     │
+  │             │            ┌────────────────────────────────────┐     │
+  │             └──────────▶ │ item2 · POST CaseMember__c         │     │
+  │                          │ Case__c: "@{refPai.id}"            │     │
+  │                          └────────────────────────────────────┘     │
+  └─────────────────────────────────────────────────────────────────────┘
+```
 
 ```jsonc
 {
