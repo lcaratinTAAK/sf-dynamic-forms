@@ -297,23 +297,20 @@ O argumento inteiro depende disto: **se cada formulário novo virar uma release 
 *Legenda sugerida: o configurador, com paleta de componentes à esquerda, o formulário no centro e as propriedades à direita. A paleta traz Seção, Lista, Anexo e Texto; abaixo, os campos do objeto, filtráveis. Arrastar um campo para dentro de uma seção cria a linha `Field`. As condições aparecem sob o componente que elas afetam, e os campos ocultos ficam marcados como tal.*
 
 🟡 **INSERIR PRINT — `builder-propriedades.png`**
-*Legenda sugerida: as propriedades de um campo. O bloco no topo diz o que NÃO se guarda ali: rótulo, tipo e limites vêm do schema. Abaixo, os três grupos de filtro — visibilidade, obrigatoriedade e validação — cada um com sua lógica própria. "Valor digitado" é o seletor de `ValueSource__c`.*
+*Legenda sugerida: as propriedades de um `Field`. O bloco no topo diz o que NÃO se guarda ali: rótulo, tipo e limites vêm do schema. Abaixo, os três grupos de filtro — visibilidade, obrigatoriedade e validação — cada um com sua lógica própria. "Valor digitado" é o seletor de `ValueSource__c`.*
 
-### O que sai disso
+### Onde cada coluna do VO é preenchida
 
-As capturas seguintes são o mesmo formulário renderizado a partir da definição, sem uma linha de código específica para ele.
+As três capturas seguintes mostram, na tela, as colunas que a seção anterior especifica.
 
-🟡 **INSERIR PRINT — `form-condicional.png`**
-*Legenda sugerida: visibilidade e obrigatoriedade condicional. A seção só existe porque o solicitante é Parceiro; dentro dela, o CPF ganhou o asterisco pela mesma razão.*
+🟡 **INSERIR PRINT — `builder-lista.png`**
+*Legenda sugerida: propriedades de uma `RepeatingSection`. "Cada item vira um registro de" é o `ChildObjectApiName__c`; abaixo dele, a tela resolve e exibe o `ChildRelationshipField__c` — o único caminho de volta ao Caso. Rótulo do item, texto do botão, mínimo e máximo completam o resto.*
 
-🟡 **INSERIR PRINT — `form-validacao.png`**
-*Legenda sugerida: validação customizada. A condição `BLOCK` bateu e a mensagem da regra apareceu; o envio fica travado enquanto ela estiver valendo.*
+🟡 **INSERIR PRINT — `builder-anexo.png`**
+*Legenda sugerida: propriedades de um `Attachment` — código do documento, tipos aceitos, mínimo, máximo e tamanho. Aqui a visibilidade usa lógica `CUSTOM`: duas condições numeradas e a expressão `1 OR 2`, que é o que vai em `FilterLogic__c`.*
 
-🟡 **INSERIR PRINT — `form-lista.png`**
-*Legenda sugerida: lista repetível. Cada item vira um registro filho ligado ao Caso. O rótulo do item e o texto do botão vêm da definição; mínimo e máximo são validados no envio.*
-
-🟡 **INSERIR PRINT — `form-anexos.png`**
-*Legenda sugerida: anexos como componente posicionado, não como bloco no fim. Cada um carrega o código do documento, os tipos aceitos e os limites — e pode ter condição própria.*
+🟡 **INSERIR PRINT — `builder-validacao.png`**
+*Legenda sugerida: o grupo de validação de um campo de data. As duas condições usam `ValueSource__c = TOKEN` — "Data relativa", com `HOJE+30` e `HOJE`. "Impedir o envio quando" é o `ValidationLogicType__c`, e a mensagem embaixo é o `Message__c`, que vive no componente e não na regra.*
 
 ### Governança
 
@@ -573,6 +570,22 @@ Dois campos são gravados pelo consumidor e **nunca** aceitos do cliente:
 Isso não é detalhe de implementação: se o Record Type vier do cliente, quem editar a requisição escolhe em que Record Type o Caso nasce — e com ele o roteamento, o layout e as regras de atendimento.
 
 Se a implementação otimizar recebendo o Record Type já resolvido (como o passo 1 permite), **o valor recebido deve ser tratado como palpite**: comparar com `TargetRecordTypeDevName__c` da especificação e descartar se divergir. A divergência também acontece sem má-fé — basta o catálogo estar velho em cache depois de operação trocar o Record Type do formulário.
+
+## O que sai disso
+
+As capturas abaixo são o mesmo formulário renderizado a partir da definição da Etapa 1, pelas chamadas desta etapa, **sem uma linha de código específica para ele**. Servem de referência do que o consumidor precisa construir.
+
+🟡 **INSERIR PRINT — `form-condicional.png`**
+*Legenda sugerida: visibilidade e obrigatoriedade condicional. A seção só aparece porque o solicitante é Parceiro; dentro dela, o CPF ganhou o asterisco pela mesma razão.*
+
+🟡 **INSERIR PRINT — `form-validacao.png`**
+*Legenda sugerida: validação customizada. A condição `BLOCK` bateu e a mensagem da regra apareceu; o envio fica travado enquanto ela estiver valendo.*
+
+🟡 **INSERIR PRINT — `form-lista.png`**
+*Legenda sugerida: lista repetível. Cada item vira um registro filho ligado ao Caso. Rótulo do item e texto do botão vêm da definição; mínimo e máximo são validados no envio.*
+
+🟡 **INSERIR PRINT — `form-anexos.png`**
+*Legenda sugerida: anexos como componente posicionado, não como bloco no fim. Cada um carrega código do documento, tipos aceitos e limites — e pode ter condição própria.*
 
 ## Proposta de modelo para contrato
 
