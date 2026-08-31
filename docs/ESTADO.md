@@ -65,8 +65,9 @@ mudam entre as fontes; o frontend é o mesmo.
 | Fonte | Chamadas | Descoberta | Seletor |
 | :---- | :---- | :---- | :---- |
 | `uiapi` | 4 | `object-info` (517 KB, filtra por profile → 50 RTs) | Record Type |
-| `uiapi-v2` | 3 | `composite/batch` SOQL (21 KB, sem filtro → 94 RTs) | Record Type |
-| `screenflow` | 5 | `composite/batch` do catálogo, 2× (40 KB cada) | **Formulário** |
+| `uiapi-v2` | 3 | `composite` SOQL (21 KB, sem filtro → 94 RTs) | Record Type |
+| `screenflow` | 5 | `composite` do catálogo, 2× (40 KB cada) | **Formulário** |
+| `formspec` | **2** | SOQL no catálogo (0,3 KB) | **Formulário** |
 
 O avaliador de regras (`server/contract.js`) é importado pelo frontend também —
 o mesmo código roda nos dois lados.
@@ -147,7 +148,7 @@ consultam a org **como o usuário de integração**, que é o que importa.
 | `ui-api/.../picklist-values/{rt}` | 333 KB | ~1.500 ms |
 | `ui-api/record-defaults/create/Case?recordTypeId` | 633 KB | ~3.500 ms |
 | `tooling/sobjects/Flow/{id}` | 35 KB | ~700 ms |
-| `composite/batch` (RecordType + regras) | 21 KB | ~200 ms |
+| `composite` (RecordType + regras) | 21 KB | ~200 ms |
 
 `record-defaults` traz o **objeto inteiro** (652 campos) mais 4 objectInfos
 aninhados — 98% da resposta é schema, para um layout de 23 campos. Não há como
@@ -161,6 +162,10 @@ enxugar: `optionalFields` só acrescenta.
    `INVALID_BATCH_REQUEST`; GraphQL `UIAPI` não expõe `objectInfo`/`layout`/
    `picklistValues`; `/ui-api/aggregate-ui` não existe em v58/60/62/66.
    `/query` **é** batchável.
+   Mas use `/composite`, não `/composite/batch`: o batch devolve query
+   cortada (`done: false`, parte dos registros) com status 200. Medido — a
+   especificação de um formulário voltou com 1 de 38 registros quando posta
+   depois do schema. O `/composite` não corta e ainda é mais rápido.
 2. **Não existe API que resolva a FlexiPage efetiva.** 692 objetos na Tooling,
    nenhum de action override. A associação só existe dentro de
    `CustomApplication.Metadata` (1.930 overrides na `ServiceConsole`).

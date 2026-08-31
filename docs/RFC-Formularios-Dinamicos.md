@@ -98,7 +98,7 @@ Três decisões merecem registro.
 
 **A especificação não guarda rótulo, tipo, tamanho nem texto de ajuda do campo.** Isso é metadado do campo e é lido do schema em tempo de execução. Duplicar criaria uma segunda verdade, que passa a divergir no dia em que alguém alterar o campo em Setup. Existem sobrescritas explícitas (`LabelOverride__c`, `HelpTextOverride__c`) para o caso concreto de o rótulo do campo não caber na pergunta — o limite de rótulo no Salesforce é 40 caracteres, e várias perguntas do Cognito passam disso.
 
-**A referência ao Record Type de destino é por `DeveloperName`, não por Id.** Id de Record Type muda entre orgs e não sobreviveria a uma promoção de forno para produção. O preço é uma chamada de 0,2 KB para resolvê-lo na leitura.
+**A referência ao Record Type de destino é por `DeveloperName`, não por Id.** Id de Record Type muda entre orgs e não sobreviveria a uma promoção de forno para produção. O preço é resolvê-lo na leitura — uma subrequisição de 0,3 KB, que cabe no mesmo composite da especificação.
 
 ## Regras: uma máquina de filtros, três efeitos
 
@@ -226,33 +226,52 @@ Medidas na scratch org, pelo usuário de integração, com o objeto `Case` em 39
 
 | # | Método | Recurso | Peso | Tempo |
 | :---- | :---- | :---- | ----: | ----: |
-| 01 | POST | `/composite/batch` — três subrequisições | 160,6 KB | 492 ms |
+| — | GET | `/query` — o catálogo: `SI_FormSpec__c` com Record Type `Form` | 0,3 KB | ~100 ms |
 
-As três subrequisições:
-
-1. `EntityParticle` — o schema dos campos: rótulo, tipo, tamanho, texto de ajuda, obrigatoriedade no objeto, FLS do usuário corrente.
-2. `FieldDefinition` — picklists dependentes e o campo que controla cada uma.
-3. `SI_FormSpec__c` — o catálogo: as linhas com Record Type `Form`.
-
-O catálogo vem **junto** e não depois, porque é ele que alimenta o seletor: sem catálogo não há formulário para escolher.
-
-Esta chamada substitui `ui-api/object-info`, que devolve todos os campos com 36 atributos cada — 377,5 KB nesta org — e não aceita filtro. `EntityParticle` é SOQL comum: escolhe as colunas, e por ser SOQL cabe no mesmo composite do catálogo.
-
-A segunda subrequisição existe por uma lacuna: nem `EntityParticle` nem `picklist-values` entregam o **nome** do campo controlador. O primeiro só marca `IsDependentPicklist`; o segundo devolve `controllerValues` sem nomear quem controla. `FieldDefinition.ControllingFieldDefinitionId` aponta para o `DurableId` de outro campo — que a primeira subrequisição já traz. Custo: 0,3 KB.
+O catálogo devolve, para cada formulário, o objeto, o **`DeveloperName` do Record Type de destino**, o `Type` do Caso e o canal. Esse `DeveloperName` é o que permite montar o formulário em duas chamadas em vez de três — ver abaixo.
 
 ### Ao escolher um formulário — a cada troca no seletor
 
 | # | Método | Recurso | Peso | Tempo |
 | :---- | :---- | :---- | ----: | ----: |
-| 02 | GET | `/query` — `SELECT … FROM SI_FormSpec__c WHERE (Id = :formId OR Form__c = :formId)` | 48,7 KB | 165 ms |
-| 03 | GET | `/query` — `RecordType` por `DeveloperName` | 0,2 KB | 132 ms |
-| 04 | GET | `/ui-api/object-info/Case/picklist-values/{recordTypeId}` | 260,4 KB | 1.224 ms |
+| 01 | POST | `/composite` — quatro subrequisições | 209,4 KB | 298 ms |
+| 02 | GET | `/ui-api/object-info/Case/picklist-values/{recordTypeId}` | 260,4 KB | 1.212 ms |
 
-A chamada 04 é a única que permanece na UI API. É a única fonte que respeita Record Type e devolve as dependências — `describe`, `FieldDefinition`, `EntityParticle` e `PicklistValueInfo` foram testados e nenhum atende. E é a única que **não** pode entrar no composite: o endpoint recusa recursos de `ui-api` com `INVALID_BATCH_REQUEST`.
+As quatro subrequisições da chamada 01, nesta ordem:
+
+1. `SI_FormSpec__c` — a especificação inteira, `WHERE (Id = :formId OR Form__c = :formId)`. 38 linhas, 48,7 KB.
+2. `RecordType` — `DeveloperName` → Id. 0,3 KB.
+3. `FieldDefinition` — picklists dependentes e o campo que controla cada uma. 0,3 KB.
+4. `EntityParticle` — o schema dos campos: rótulo, tipo, tamanho, texto de ajuda, obrigatoriedade no objeto, FLS do usuário corrente. 159,9 KB.
+
+**A subrequisição 2 só cabe aqui porque o `DeveloperName` chega pronto do cliente.** Ele saiu do catálogo, que a tela já leu para montar o seletor. Sem ele, a consulta dependeria do retorno da subrequisição 1, e as subrequisições de um composite são independentes — era isso que obrigava a uma terceira chamada.
+
+O valor recebido é tratado como **palpite, não verdade**: o servidor compara com o `TargetRecordTypeDevName__c` da especificação e descarta se divergir, resolvendo numa consulta própria e registrando aviso. Não é zelo teórico — `RecordTypeId` é campo de back-end, injetado pelo servidor justamente para o formulário não escolher em que Record Type o Caso nasce; aceitar o da query string devolveria essa escolha a quem edita a URL. A mesma divergência acontece sem má-fé, quando o admin troca o Record Type e o cliente está com catálogo velho em cache. Há também guarda de formato (`^[A-Za-z0-9_]{1,80}$`), porque o valor é interpolado num SOQL.
+
+A subrequisição 4 substitui `ui-api/object-info`, que devolve todos os campos com 36 atributos cada — 377,5 KB nesta org — e não aceita filtro. `EntityParticle` é SOQL comum: escolhe as colunas, e por ser SOQL cabe em composite.
+
+A subrequisição 3 existe por uma lacuna: nem `EntityParticle` nem `picklist-values` entregam o **nome** do campo controlador. O primeiro só marca `IsDependentPicklist`; o segundo devolve `controllerValues` sem nomear quem controla. `FieldDefinition.ControllingFieldDefinitionId` aponta para o `DurableId` de outro campo — que a subrequisição 4 já traz. Custo: 0,3 KB.
+
+A chamada 02 é a única que permanece na UI API. É a única fonte que respeita Record Type e devolve as dependências — `describe`, `FieldDefinition`, `EntityParticle` e `PicklistValueInfo` foram testados e nenhum atende. E é a única que **não** pode entrar no composite: o endpoint recusa recursos de `ui-api` com `INVALID_BATCH_REQUEST`.
+
+### `/composite`, e não `/composite/batch`
+
+A escolha é medida, não estilística. O `/composite/batch` devolve query **cortada** — `done: false` com uma fração dos registros — junto de um status **200**. Mesmas quatro consultas, mesma ordem:
+
+| endpoint | especificação | schema | tempo |
+| :---- | :---- | :---- | ----: |
+| `/composite/batch` | **1 de 38** | 397 de 397 | 499 ms |
+| `/composite` | 38 de 38 | 397 de 397 | 298 ms |
+
+Trinta e oito registros não chegam perto do limite de 2.000 do SOQL: o corte não vem do tamanho da consulta, vem do batch reduzindo o lote depois de já ter processado o schema. Outras combinações confirmam que não é teto de tamanho de resposta — `[spec, schema, schema]` passa inteiro com 369 KB, e `[schema, spec]` corta com 162 KB.
+
+O sintoma seria um formulário sem seção nenhuma, sem erro. O BFF confere `done` em toda subrequisição e refaz fora do lote o que voltar cortado, registrando a viagem extra no diagnóstico — o `/composite` não cortou em nenhum caso testado, mas conferir custa uma comparação e não conferir custa uma falha invisível.
+
+`allOrNone: false` nas leituras: nesse modo, a subrequisição que falha falha sozinha, como no batch. Com `true`, uma falha derruba as demais com `PROCESSING_HALTED` — inaceitável aqui, porque objetos opcionais podem não existir na org.
 
 ### Total
 
-**4 chamadas, 470 KB, ~2,0 s.** Noventa por cento do peso está em duas chamadas de schema (160,6 KB e 260,4 KB). A definição do formulário custa 48,9 KB. O peso não está no formulário — está no objeto `Case`.
+**2 chamadas, 470 KB, ~1,5 s** para montar um formulário, mais 0,3 KB do catálogo uma vez por sessão. Oitenta e nove por cento do peso é metadado do objeto (159,9 KB de schema e 260,4 KB de picklists). A definição do formulário custa 48,7 KB; Record Type e dependências somam 0,6 KB. O peso não está no formulário — está no objeto `Case`.
 
 ### Ao enviar
 

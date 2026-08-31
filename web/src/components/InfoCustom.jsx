@@ -19,73 +19,64 @@ import '../info-custom.css';
    ══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * As quatro chamadas, na ordem real em que saem.
+ * A chamada que abre a aplicação, antes de qualquer formulário ser escolhido.
+ * Fica fora da lista abaixo porque acontece em outro momento e não depende de
+ * escolha nenhuma.
+ */
+const CHAMADA_INICIAL = {
+  metodo: 'GET',
+  rota: "/query?q=SELECT … FROM SI_FormSpec__c WHERE RecordType.DeveloperName = 'Form'",
+  peso: '0,3 KB',
+  paraQue:
+    'O catálogo: quais formulários existem e, para cada um, o objeto, o Record Type de destino, o Type do Caso e o canal. É ele que alimenta o seletor — e é dele que sai o DeveloperName que a chamada 01 recebe pronto.',
+};
+
+/**
+ * Duas chamadas montam o formulário inteiro. Eram quatro.
  *
- * A ordem importa e não é arbitrária: o catálogo vem junto do schema porque é
- * ele que alimenta o seletor. Sem catálogo não há formulário para escolher, e
- * o `formId` das chamadas 02–04 sai dele.
+ * O que juntou três delas foi o catálogo acima: ele já devolve o DeveloperName
+ * do Record Type de cada formulário. Com esse nome vindo pronto, a consulta do
+ * Record Type deixa de depender do retorno da especificação e cabe no mesmo
+ * composite. É palpite, não verdade — o servidor confere contra a especificação
+ * antes de usar.
  */
 const CHAMADAS = [
   {
     n: '01',
     metodo: 'POST',
-    quando: 'ao abrir a aplicação',
-    titulo: 'Metadado dos campos + catálogo de formulários',
-    rota: '/services/data/v66.0/composite/batch',
-    peso: '160,6 KB',
-    tempo: '492 ms',
+    quando: 'ao escolher um formulário',
+    titulo: 'A definição inteira, numa viagem',
+    rota: '/services/data/v66.0/composite',
+    peso: '209,4 KB',
+    tempo: '298 ms',
     paraQue:
-      'Descobrir quais formulários existem e, na mesma viagem, o metadado de todo campo do objeto: rótulo, tipo, tamanho, texto de ajuda e obrigatoriedade no objeto.',
+      'Trazer de uma vez a árvore do formulário, o Record Type onde o Caso vai nascer, quem controla cada picklist dependente e o metadado de todo campo do objeto — rótulo, tipo, tamanho, texto de ajuda e obrigatoriedade.',
     detalhe: [
-      ['EntityParticle', 'schema dos 397 campos criáveis de Case', '159,9 KB'],
+      ['SI_FormSpec__c', 'a especificação: 38 linhas, WHERE (Id = :formId OR Form__c = :formId)', '48,7 KB'],
+      ['RecordType', 'DeveloperName → Id', '0,3 KB'],
       ['FieldDefinition', 'picklist dependente → quem a controla', '0,3 KB'],
-      ['SI_FormSpec__c', 'o catálogo: as linhas com Record Type Form', '0,3 KB'],
+      ['EntityParticle', 'schema dos 397 campos criáveis de Case', '159,9 KB'],
     ],
     porqueAssim:
-      'Substitui ui-api/object-info, que devolve todo campo com 36 atributos — 377,5 KB nesta org — e não aceita filtro de campo nem de coluna. EntityParticle é SOQL comum: escolhe as colunas e, por ser SOQL, cabe num composite junto do catálogo.',
+      'O schema substitui ui-api/object-info, que devolve todo campo com 36 atributos — 377,5 KB nesta org — e não aceita filtro de campo nem de coluna. EntityParticle é SOQL comum: escolhe as colunas e, por ser SOQL, cabe em composite junto das outras três.',
+    alerta:
+      'É /composite e NÃO /composite/batch. O batch devolve query cortada — done: false com parte dos registros — junto de um status 200: a especificação vinha com 1 dos 38 registros quando colocada depois do schema. Trinta e oito registros não chegam perto do limite de 2.000 do SOQL, então o corte é do batch, não da consulta. O /composite devolve tudo inteiro e ainda é mais rápido: 298 ms contra 499 ms.',
   },
   {
     n: '02',
     metodo: 'GET',
     quando: 'ao escolher um formulário',
-    titulo: 'A especificação inteira',
-    rota: '/services/data/v66.0/query?q=SELECT … FROM SI_FormSpec__c',
-    peso: '48,7 KB',
-    tempo: '165 ms',
-    paraQue:
-      'Trazer a árvore completa do formulário: seções, campos, blocos de texto, anexos, listas e regras. Uma consulta, 38 linhas.',
-    detalhe: [['SI_FormSpec__c', 'WHERE (Id = :formId OR Form__c = :formId)', '48,7 KB']],
-    porqueAssim:
-      'A condição plana é o que dispensa composite e Apex REST. Toda linha aponta para a raiz em Form__c, então um OR traz a árvore inteira em um nível. Uma hierarquia em objetos separados exigiria várias chamadas — SOQL só desce um nível de sub-query.',
-  },
-  {
-    n: '03',
-    metodo: 'GET',
-    quando: 'ao escolher um formulário',
-    titulo: 'Record Type de destino',
-    rota: "/query?q=SELECT Id, Name FROM RecordType WHERE DeveloperName = '…'",
-    peso: '0,2 KB',
-    tempo: '132 ms',
-    paraQue: 'Resolver o DeveloperName guardado na especificação para o Id daquela org.',
-    detalhe: [['RecordType', 'DeveloperName → Id', '0,2 KB']],
-    porqueAssim:
-      'A especificação guarda o nome, não o Id: Id de Record Type muda entre orgs e não sobreviveria a um deploy de forno para produção. O preço é esta chamada de 0,2 KB.',
-  },
-  {
-    n: '04',
-    metodo: 'GET',
-    quando: 'ao escolher um formulário',
     titulo: 'Valores de picklist',
     rota: '/services/data/v66.0/ui-api/object-info/Case/picklist-values/{recordTypeId}',
     peso: '260,4 KB',
-    tempo: '1.224 ms',
+    tempo: '1.212 ms',
     paraQue:
       'Os valores válidos de cada picklist NAQUELE Record Type, com validFor e controllerValues para filtrar campos dependentes em tempo de digitação.',
     detalhe: [['ui-api', 'picklist-values por Record Type', '260,4 KB']],
     porqueAssim:
       'É a única fonte que respeita Record Type e devolve dependências — describe, FieldDefinition, EntityParticle e PicklistValueInfo foram testados e nenhum fecha. E é a única que não entra no composite: o endpoint recusa recursos de ui-api com INVALID_BATCH_REQUEST.',
     alerta:
-      'É a maior chamada do fluxo e a mais lenta. Existe a versão por campo — mesma informação, 0,4 a 1,3 KB por campo, ~100 ms. Doze campos concorrentes trocariam 260 KB por ~12 KB. Medido; não aplicado.',
+      'Sozinha, é 55% do peso e 80% do tempo do fluxo. Existe a versão por campo — mesma informação, 0,4 a 1,3 KB por campo, ~110 ms. Doze campos concorrentes trocariam 260 KB por ~12 KB. Medido; não aplicado.',
   },
 ];
 
@@ -677,41 +668,34 @@ function Sequencia() {
       y: 180,
       de: 1,
       para: 2,
-      txt: '01  POST /composite/batch',
-      tipo: 'post',
-      nota: '160,6 KB · 492 ms',
+      txt: 'GET /query — o catálogo',
+      tipo: 'get',
+      nota: '0,3 KB',
     },
-    { y: 212, de: 2, para: 1, txt: 'schema + dependentes + catálogo', tipo: 'volta' },
+    { y: 212, de: 2, para: 1, txt: 'formulários + Record Type de cada um', tipo: 'volta' },
     { y: 236, de: 1, para: 0, txt: 'lista de formulários', tipo: 'ui' },
 
-    { y: 304, de: 0, para: 1, txt: 'escolhe um formulário', tipo: 'ui' },
+    { y: 304, de: 0, para: 1, txt: 'escolhe um  ·  manda o formId e o Record Type', tipo: 'ui' },
     {
-      y: 336,
+      y: 344,
       de: 1,
       para: 2,
-      txt: '02  GET /query — a especificação',
-      tipo: 'get',
-      nota: '48,7 KB · 165 ms',
+      txt: '01  POST /composite — 4 subrequisições',
+      tipo: 'post',
+      nota: '209,4 KB · 298 ms',
     },
+    { y: 376, de: 2, para: 1, txt: 'especificação + Record Type + dependentes + schema', tipo: 'volta' },
     {
-      y: 368,
+      y: 408,
       de: 1,
       para: 2,
-      txt: '03  GET /query — Record Type',
+      txt: '02  GET /ui-api/picklist-values',
       tipo: 'get',
-      nota: '0,2 KB · 132 ms',
+      nota: '260,4 KB · 1.212 ms',
     },
-    {
-      y: 400,
-      de: 1,
-      para: 2,
-      txt: '04  GET /ui-api/picklist-values',
-      tipo: 'get',
-      nota: '260,4 KB · 1.224 ms',
-    },
-    { y: 432, de: 2, para: 1, txt: 'os três retornos', tipo: 'volta' },
-    { y: 462, de: 1, para: 1, txt: 'specToContract()  ·  tradução, sem I/O', tipo: 'self' },
-    { y: 490, de: 1, para: 0, txt: 'o contrato', tipo: 'ui' },
+    { y: 440, de: 2, para: 1, txt: 'valores válidos no Record Type', tipo: 'volta' },
+    { y: 468, de: 1, para: 1, txt: 'specToContract()  ·  tradução, sem I/O', tipo: 'self' },
+    { y: 494, de: 1, para: 0, txt: 'o contrato', tipo: 'ui' },
 
     { y: 568, de: 0, para: 0, txt: 'preenche  ·  o avaliador roda a cada tecla', tipo: 'self' },
     { y: 600, de: 0, para: 1, txt: 'envia', tipo: 'ui' },
@@ -721,16 +705,17 @@ function Sequencia() {
 
   const FASES = [
     { y: 100, h: 140, rotulo: 'AO ABRIR  ·  uma vez por sessão' },
-    { y: 256, h: 248, rotulo: 'AO ESCOLHER UM FORMULÁRIO  ·  a cada troca no seletor' },
+    { y: 256, h: 256, rotulo: 'AO ESCOLHER UM FORMULÁRIO  ·  a cada troca no seletor' },
     { y: 520, h: 152, rotulo: 'AO ENVIAR' },
   ];
 
   return (
     <Secao titulo="O fluxo, do link ao Caso" chapeu="Sequência">
       <p>
-        Cinco chamadas ao todo, mas não cinco por formulário. A primeira acontece{' '}
-        <strong>uma vez</strong>, ao abrir — traz o schema do objeto e o catálogo juntos. Trocar de
-        formulário no seletor dispara só as três seguintes.
+        Ao abrir, uma consulta traz o catálogo — e com ele o Record Type de cada formulário. É esse
+        detalhe que faz a montagem caber em <strong>duas chamadas</strong>: como o cliente já sabe
+        o Record Type quando escolhe, a consulta dele não precisa esperar a especificação chegar, e
+        entra no mesmo composite.
       </p>
 
       <svg
@@ -831,6 +816,18 @@ function Chamadas() {
         Case tem <strong>397 campos criáveis</strong> nesta org.
       </p>
 
+      <div className="chamada-inicial">
+        <div className="ci-topo">
+          <span className={`verbo verbo-${CHAMADA_INICIAL.metodo.toLowerCase()}`}>
+            {CHAMADA_INICIAL.metodo}
+          </span>
+          <span className="ci-rot">Antes de tudo · uma vez, ao abrir</span>
+          <span className="ci-peso">{CHAMADA_INICIAL.peso}</span>
+        </div>
+        <code className="ci-rota">{CHAMADA_INICIAL.rota}</code>
+        <p>{CHAMADA_INICIAL.paraQue}</p>
+      </div>
+
       <div className="chamadas">
         {CHAMADAS.map((c) => (
           <div className="chamada" key={c.n}>
@@ -890,7 +887,7 @@ function Chamadas() {
 
       <div className="totalizador">
         <div>
-          <span className="tot-n">4</span>
+          <span className="tot-n">2</span>
           <span className="tot-rot">chamadas</span>
         </div>
         <div>
@@ -898,22 +895,22 @@ function Chamadas() {
           <span className="tot-rot">para montar um formulário</span>
         </div>
         <div>
-          <span className="tot-n">~2,0 s</span>
+          <span className="tot-n">~1,5 s</span>
           <span className="tot-rot">somando os tempos</span>
         </div>
         <p className="tot-obs">
-          <strong>90% do peso está em duas chamadas de schema</strong> — 160,6 KB de metadado de
-          campo e 260,4 KB de picklists. A definição do formulário em si custa 48,9 KB. O peso não
-          está no formulário, está no objeto Case.
+          <strong>89% do peso é metadado do objeto</strong> — 159,9 KB de schema dos campos e
+          260,4 KB de picklists. A definição do formulário em si custa 48,7 KB, e o Record Type
+          mais as dependências somam 0,6 KB. O peso não está no formulário, está no objeto Case.
         </p>
       </div>
 
       <div className="barras">
         {[
-          ['01 · schema + catálogo', 160.6],
-          ['02 · especificação', 48.7],
-          ['03 · Record Type', 0.2],
-          ['04 · picklists', 260.4],
+          ['01 · especificação', 48.7],
+          ['01 · Record Type + dependências', 0.6],
+          ['01 · schema dos campos', 159.9],
+          ['02 · picklists', 260.4],
         ].map(([rot, kb]) => (
           <div className="barra-linha" key={rot}>
             <span className="barra-rot">{rot}</span>
@@ -1129,7 +1126,7 @@ function Tradutor() {
   return (
     <Secao titulo="Do retorno do Salesforce ao contrato" chapeu="A tradução, ao vivo">
       <p>
-        À esquerda, o que as quatro chamadas devolvem — com a forma exata do retorno real, o{' '}
+        À esquerda, o que as chamadas devolvem — com a forma exata do retorno real, o{' '}
         <code>attributes</code> de cada linha de SOQL incluído, só que pequeno o bastante para caber
         na tela. À direita, o contrato. <strong>Edite a esquerda e a direita acompanha.</strong>
       </p>
@@ -1154,8 +1151,9 @@ function Tradutor() {
             onChange={(e) => setEntrada(e.target.value)}
           />
           <div className="lado-pe">
-            <code>spec</code> = chamada 02 · <code>schema</code> e <code>dependentes</code> = 01 ·{' '}
-            <code>recordType</code> = 03 · <code>picklists</code> = 04
+            <code>spec</code>, <code>recordType</code>, <code>dependentes</code> e{' '}
+            <code>schema</code> = as quatro subrequisições da chamada 01 ·{' '}
+            <code>picklists</code> = chamada 02
           </div>
         </div>
 

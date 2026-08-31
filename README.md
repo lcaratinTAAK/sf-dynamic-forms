@@ -240,7 +240,7 @@ newman run postman/Formularios-Dinamicos.postman_collection.json   -e postman/Sc
 ```
 
 Duas requisições **falham de propósito** e estão lá por isso: uma prova que a
-UI API é recusada dentro de `composite/batch`, outra que `EntityParticle` não
+UI API é recusada dentro de um composite, outra que `EntityParticle` não
 expõe `ControllingFieldDefinitionId`. As duas falhas são a justificativa de
 decisões de desenho, e vale poder repetir o experimento em vez de acreditar
 numa nota de rodapé.

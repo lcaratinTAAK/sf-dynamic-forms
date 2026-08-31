@@ -160,6 +160,48 @@
 
 /* --- as chamadas em detalhe ------------------------------------------------ */
 
+/* A do catálogo vem antes e é de outra natureza: acontece uma vez, ao abrir, e
+   não depende de escolha nenhuma. Fica visualmente mais leve que as numeradas
+   para não sugerir que faz parte da montagem do formulário. */
+.info-custom .chamada-inicial {
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  padding: 13px 16px 14px;
+  margin: 20px 0 10px;
+}
+.info-custom .ci-topo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.info-custom .ci-rot {
+  flex: 1;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.info-custom .ci-peso {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.info-custom .ci-rota {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+  overflow-x: auto;
+  white-space: nowrap;
+  padding-bottom: 4px;
+}
+.info-custom .chamada-inicial p {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
 .info-custom .chamadas {
   display: grid;
   gap: 16px;

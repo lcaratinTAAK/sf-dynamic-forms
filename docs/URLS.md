@@ -1,6 +1,19 @@
 # URLs usadas pela POC
 
-Org: `benvi2-scratch-org` — `https://aries-trailblazer-7495.scratch.my.salesforce.com`
+> **Este documento é histórico.** Foi escrito na fase das três primeiras fontes,
+> antes da `formspec` existir, e a org que ele cita já foi apagada — os Ids
+> abaixo não resolvem mais. Os `composite/batch` também não refletem o código
+> atual: as leituras migraram para `/composite`, porque o batch devolve query
+> cortada com status 200 (ver `ESTADO.md`, conclusão 1).
+>
+> **A referência viva é a coleção Postman**, em `postman/`: ela roda contra a
+> org e é verificada por `newman`, então não tem como divergir em silêncio. Para
+> a fonte Custom em específico, ver `RFC-Formularios-Dinamicos.md`.
+>
+> O que continua valendo aqui são os **experimentos** — a Tooling dentro do
+> lote, as alternativas investigadas e por que cada uma foi descartada.
+
+Org: `benvi2-scratch-org` — `https://aries-trailblazer-7495.scratch.my.salesforce.com` *(apagada)*
 
 - Record Type da demo: `012Ha000002eNzHIAU`
 - Flow (versão ativa hoje): `301Ha000010PSOnIAO`
