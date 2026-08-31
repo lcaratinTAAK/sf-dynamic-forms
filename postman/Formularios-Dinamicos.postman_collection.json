@@ -76,6 +76,14 @@
       "key": "recordTypeId",
       "value": "",
       "description": "Preenchido pela chamada 03."
+    },
+    {
+      "key": "contrato",
+      "value": ""
+    },
+    {
+      "key": "secaoListaId",
+      "value": ""
     }
   ],
   "item": [
@@ -286,7 +294,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Width__c, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c, PublicLabel__c, Description__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c, IsRequired__c, IsReadOnly__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, ConditionFieldApiName__c, Operator__c, Value__c, Effect__c, FilterLogicType__c, FilterLogic__c, Body__c, ItemLabel__c, AddButtonText__c, Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true ORDER BY Sort__c NULLS FIRST, Name",
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Page__c, Width__c, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c, PublicLabel__c, Description__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c, IsRequired__c, IsReadOnly__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, ConditionFieldApiName__c, Operator__c, Value__c, Effect__c, FilterLogicType__c, FilterLogic__c, Body__c, IsRepeating__c, ItemLabel__c, AddButtonText__c, Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true ORDER BY Sort__c NULLS FIRST, Name",
               "host": [
                 "{{instanceUrl}}"
               ],
@@ -299,7 +307,7 @@
               "query": [
                 {
                   "key": "q",
-                  "value": "SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Width__c, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c, PublicLabel__c, Description__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c, IsRequired__c, IsReadOnly__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, ConditionFieldApiName__c, Operator__c, Value__c, Effect__c, FilterLogicType__c, FilterLogic__c, Body__c, ItemLabel__c, AddButtonText__c, Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true ORDER BY Sort__c NULLS FIRST, Name"
+                  "value": "SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Page__c, Width__c, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c, PublicLabel__c, Description__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c, IsRequired__c, IsReadOnly__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, ConditionFieldApiName__c, Operator__c, Value__c, Effect__c, FilterLogicType__c, FilterLogic__c, Body__c, IsRepeating__c, ItemLabel__c, AddButtonText__c, Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true ORDER BY Sort__c NULLS FIRST, Name"
                 }
               ]
             },
@@ -605,6 +613,18 @@
                   "  );",
                   "});",
                   "",
+                  "// Guardar o contrato inteiro dispensa copiar JSON para o pedido seguinte.",
+                  "// Environment vence collection na resolução do Postman, então grava-se",
+                  "// onde vai ser lido.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "guardar('contrato', JSON.stringify(c));",
+                  "",
+                  "// A seção repetível, para o exemplo de validação poder preencher um item.",
+                  "const lista = c.sections.find((s) => s.repeating);",
+                  "guardar('secaoListaId', lista ? lista.id : '');",
+                  "",
                   "const itens = c.sections.flatMap((s) => s.fields);",
                   "const conta = (f) => itens.filter(f).length;",
                   "console.log([",
@@ -702,7 +722,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"contract\": \"<<cole aqui o retorno de GET /api/form>>\",\n  \"values\": {\n    \"SI_RequesterType__c\": \"Parceiro\",\n    \"SI_ContractStatus__c\": \"Ativo\",\n    \"__listas\": {\n      \"<<id da seção repetível>>\": [{ \"Name\": \"João Souza\" }]\n    },\n    \"__attachments\": []\n  }\n}"
+              "raw": "{\n  \"contract\": {{contrato}},\n  \"values\": {\n    \"SI_RequesterType__c\": \"Parceiro\",\n    \"SI_ContractStatus__c\": \"Ativo\",\n    \"__listas\": {\n      \"{{secaoListaId}}\": [\n        {\n          \"Name\": \"João Souza\"\n        }\n      ]\n    },\n    \"__attachments\": []\n  }\n}"
             },
             "url": {
               "raw": "{{bffUrl}}/api/submit",
@@ -714,8 +734,29 @@
                 "submit"
               ]
             },
-            "description": "Monta o payload que **seria** enviado, e devolve o diagnóstico sem gravar nada:\n\n| chave | o que diz |\n| :-- | :-- |\n| `valid` | passou nos obrigatórios e nas validações |\n| `missing` | obrigatórios não preenchidos — inclui os que viraram obrigatórios por regra |\n| `invalid` | validações `BLOCK` que dispararam, com a mensagem |\n| `hiddenFieldsIgnored` | campos ocultos por regra, deixados fora do payload |\n| `injectedFields` | o que o back-end gravou por conta própria |\n| `request` | o POST ou o composite pronto |\n\nO avaliador aqui é o **mesmo** que roda no navegador a cada digitação — é o que garante que a tela e o envio não discordem."
-          }
+            "description": "Usa o contrato que o pedido anterior guardou — não é preciso copiar JSON nenhum. Preenche só dois campos de propósito: a resposta lista em `missing` tudo que ainda falta, incluindo o que virou obrigatório por causa de \"Parceiro\"."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "",
+                  "// Só dois campos foram preenchidos, então o esperado é INVÁLIDO com lista",
+                  "// do que falta. Um `valid: true` aqui significaria que a validação não rodou.",
+                  "pm.test('reprova o preenchimento incompleto', () => pm.expect(r.valid).to.eql(false));",
+                  "pm.test('diz o que falta', () => pm.expect(r.missing).to.be.an('array').that.is.not.empty);",
+                  "",
+                  "console.log('faltando: ' + r.missing.join(', '));",
+                  "if (r.invalid && r.invalid.length) console.log('inválido: ' + JSON.stringify(r.invalid));",
+                  "console.log('itens de lista montados: ' + (r.listas || []).length);"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
