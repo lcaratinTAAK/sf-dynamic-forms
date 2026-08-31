@@ -236,7 +236,7 @@ export async function discoverViaSoql(objectApiName, rulesObject) {
     `Operator__c, Value__c, Effect__c, LogicGroup__c FROM ${rulesObject} ` +
     `WHERE ObjectApiName__c = '${objectApiName}' AND IsActive__c = true`;
 
-  const { raw, request, refeitos, registros, falhou } = await batchDeQueries({
+  const { raw, request, refeitos, registros, falhou } = await consultasEmLote({
     recordTypes: qRecordTypes,
     regras: qRegras,
   });
@@ -282,7 +282,7 @@ export const queryFlowDefinitions = () =>
 
 /**
  * O catálogo de formulários e tudo que ele precisa para ser resolvido, numa
- * ÚNICA requisição HTTP: três subrequests em `/composite/batch`.
+ * ÚNICA requisição HTTP: três subrequests, via `consultasEmLote`.
  *
  *   1. FormDefinition__c    — o catálogo em si
  *   2. FlowDefinitionView   — API Name do flow → Id da versão ativa
@@ -293,8 +293,8 @@ export const queryFlowDefinitions = () =>
  * A Tooling API é aceita pelo `/composite/batch` — devolve 200 e o `totalSize`
  * certo — mas descarta todos os campos selecionados: cada registro volta só com
  * `attributes`. Verificado em Flow e FlexiPage, com RecordType como controle na
- * mesma requisição. Ou seja: a Tooling entra no batch e não serve para nada.
- * (`/composite` nem aceita: recusa com PROCESSING_HALTED.)
+ * mesma requisição. Ou seja: a Tooling entra no lote e não serve para nada.
+ * (No `/composite` a Tooling também não passa.)
  *
  * A `FlowDefinitionView` é a saída — objeto padrão, sobrevive ao batch, e ainda
  * é a fonte mais correta: expõe `ActiveVersionId` diretamente. A Tooling
@@ -328,26 +328,21 @@ export async function discoverFormCatalog({ objectApiName, source = null, formId
     WHERE SobjectType = '${objectApiName}' AND IsActive = true
   `);
 
-  const { raw: resposta, request, refeitos, resultado, registros } = await batchDeQueries({
-    forms: qForms,
-    flows: qFlows,
-    recordTypes: qRecordTypes,
-  });
+  const { raw: resposta, request, refeitos, registros, falhou, erro: mensagemDeErro } =
+    await consultasEmLote({ forms: qForms, flows: qFlows, recordTypes: qRecordTypes });
 
   const warnings = [];
 
   // Uma query cortada volta 200 e parece sucesso. Aqui isso significaria menos
   // formulários no catálogo, ou um Record Type "inexistente" que existe — por
-  // isso o `batchDeQueries` refaz, e o aviso registra que a viagem extra houve.
+  // isso o `consultasEmLote` refaz, e o aviso registra que a viagem extra houve.
   for (const nome of refeitos) {
-    warnings.push(`"${nome}" voltou cortado do composite/batch e foi refeito numa consulta própria.`);
+    warnings.push(`"${nome}" voltou cortado do lote e foi refeito numa consulta própria.`);
   }
 
   const erro = (nome, rotulo) => {
-    const r = resultado(nome);
-    if (r?.statusCode === 200) return false;
-    const corpo = Array.isArray(r?.result) ? r.result[0] : r?.result;
-    warnings.push(`${rotulo}: ${corpo?.errorCode ?? r?.statusCode} — ${corpo?.message ?? 'falhou'}`);
+    if (!falhou(nome)) return false;
+    warnings.push(`${rotulo}: ${mensagemDeErro(nome) ?? 'falhou'}`);
     return true;
   };
 
@@ -415,50 +410,59 @@ export const soql = (query) => sfGet(`${v()}/query?q=${encodeURIComponent(query)
 /**
  * Várias SOQL numa requisição HTTP só, com os resultados COMPLETOS.
  *
- * O `composite/batch` pode devolver uma query CORTADA — `done: false`, com uma
- * fração dos registros — e ainda assim responder 200. Quem não olhar o `done`
- * trata o pedaço como se fosse o todo.
+ * Usa `/composite`, e não `/composite/batch`, por um motivo medido: o batch
+ * devolve query CORTADA — `done: false` e uma fração dos registros — junto de
+ * um status 200. Quem não olhar o `done` trata o pedaço como se fosse o todo.
  *
- * Medido nesta org, com a especificação de um formulário (38 linhas largas) e o
- * schema de Case (397 campos):
+ * Medido nesta org, com a especificação de um formulário (38 linhas largas de
+ * 44 colunas) e o schema de Case (397 campos):
  *
- *   [spec]                          38 → 38
- *   [schema, spec]                  397 → 397  |  38 → 1   CORTADO
- *   [spec, schema]                  38 → 38    |  397 → 397
- *   [spec, schema, schema]          tudo inteiro, 369 KB
- *   [schema, schema, schema, spec]  os três inteiros  |  38 → 1   CORTADO
+ *   composite/batch, [schema, spec]   397 → 397  |  38 → 1   CORTADO   499 ms
+ *   composite,       [schema, spec]   397 → 397  |  38 → 38            331 ms
  *
- * Repare que 369 KB passa e 162 KB corta: NÃO é um teto de tamanho da resposta.
- * O que reproduz é a consulta de linhas largas vir depois de uma consulta ao
- * schema — provavelmente o Salesforce recalcula o tamanho do lote por largura
- * de linha, mas com essas medições eu não sei a regra, e chutar seria pior que
- * admitir. Por isso a ordem das subrequisições é OTIMIZAÇÃO (as pesadas por
- * último reduzem a chance), e a garantia é esta função: o que voltar cortado é
- * refeito fora do batch, onde o corte não existe.
+ * Trinta e oito registros não chegam nem perto do limite de 2.000 do SOQL: o
+ * corte não vem do tamanho da consulta, vem do batch reduzindo o lote depois de
+ * já ter processado o schema. Outras combinações confirmam que não é teto de
+ * tamanho — [spec, schema, schema] passa inteiro com 369 KB, e [schema, spec]
+ * corta com 162 KB. Não sei a regra exata do batch, e chutar seria pior que
+ * admitir; o que sei é que o `/composite` não faz isso, e ainda é mais rápido.
+ *
+ * `allOrNone: false` porque aqui só se lê, e algumas consultas PODEM falhar sem
+ * invalidar as outras — o objeto de regras pode não existir na org. Verificado
+ * que nesse modo o comportamento é o do batch: a que falha falha sozinha. Com
+ * `true`, uma falha derruba as demais com PROCESSING_HALTED.
+ *
+ * A verificação de `done` continua aqui como rede: o `/composite` não cortou em
+ * nenhum caso testado, mas o custo de conferir é uma comparação, e o custo de
+ * não conferir é um formulário sem seções que ninguém vê quebrar.
  *
  * Recebe `{ nome: soql }` e devolve os registros por nome, mais a lista do que
  * precisou ser refeito — para o chamador poder contar as viagens de verdade.
  */
-export async function batchDeQueries(queries) {
+export async function consultasEmLote(queries) {
   const version = v();
   const uma = (q) => q.replace(/\s+/g, ' ').trim();
-  const paraBatch = (q) => `v${config.apiVersion}/query?q=${encodeURIComponent(uma(q))}`;
-  const paraGet = (q) => `${version}/query?q=${encodeURIComponent(uma(q))}`;
+  const url = (q) => `${version}/query?q=${encodeURIComponent(uma(q))}`;
 
   const nomes = Object.keys(queries).filter((n) => queries[n]);
-  const corpo = { batchRequests: nomes.map((n) => ({ method: 'GET', url: paraBatch(queries[n]) })) };
-  const request = { method: 'POST', url: `${version}/composite/batch`, body: corpo };
+  const corpo = {
+    allOrNone: false,
+    compositeRequest: nomes.map((n) => ({ method: 'GET', url: url(queries[n]), referenceId: n })),
+  };
+  const request = { method: 'POST', url: `${version}/composite`, body: corpo };
 
   const raw = await sfPost(request.url, corpo);
 
+  // O referenceId volta na resposta, então o mapeamento é por nome e não por
+  // posição — uma subrequisição a mais no meio não desalinha nada.
   const porNome = {};
-  nomes.forEach((n, i) => (porNome[n] = raw.results?.[i] ?? null));
+  for (const r of raw.compositeResponse ?? []) porNome[r.referenceId] = r;
 
   const refeitos = [];
   for (const n of nomes) {
-    if (porNome[n]?.result?.done === false) {
+    if (porNome[n]?.body?.done === false) {
       refeitos.push(n);
-      porNome[n] = { statusCode: 200, result: await sfGet(paraGet(queries[n])) };
+      porNome[n] = { httpStatusCode: 200, referenceId: n, body: await sfGet(url(queries[n])) };
     }
   }
 
@@ -467,8 +471,13 @@ export async function batchDeQueries(queries) {
     request,
     refeitos,
     resultado: (n) => porNome[n] ?? null,
-    registros: (n) => porNome[n]?.result?.records ?? [],
-    falhou: (n) => (porNome[n] ? porNome[n].statusCode !== 200 : true),
+    registros: (n) => porNome[n]?.body?.records ?? [],
+    falhou: (n) => (porNome[n] ? porNome[n].httpStatusCode !== 200 : true),
+    erro: (n) => {
+      const b = porNome[n]?.body;
+      const primeiro = Array.isArray(b) ? b[0] : b;
+      return primeiro?.errorCode ? `${primeiro.errorCode} — ${primeiro.message}` : null;
+    },
   };
 }
 
@@ -551,11 +560,12 @@ const NOME_API = /^[A-Za-z0-9_]{1,80}$/;
  * as colunas, e por ser SOQL comum entra em composite.
  *
  * A quarta subrequisição só existe quando o chamador informa o DeveloperName.
- * Ele vem do catálogo, que o cliente já leu para montar o seletor — sem isso a
- * consulta dependeria do retorno da terceira, e num `composite/batch` as
- * subrequisições são independentes. (`/composite` resolveria com
- * `@{ref.records[0].campo}`, mas a referência não pode ir URL-encodada, e
- * errar isso devolve 200 com zero registros — falha silenciosa.)
+ * Ele vem do catálogo, que o cliente já leu para montar o seletor. Sem isso a
+ * consulta dependeria do retorno da especificação, e aqui as subrequisições são
+ * tratadas como independentes. (O `/composite` resolveria a dependência com
+ * `@{ref.records[0].campo}` — testado, funciona — mas a referência não pode ir
+ * URL-encodada, e errar isso devolve 200 com zero registros: falha silenciosa.
+ * Receber o nome pronto é mais simples e não tem essa armadilha.)
  *
  * O DeveloperName que chega é PALPITE, não verdade: quem manda é o
  * `TargetRecordTypeDevName__c` da especificação, e conferir isso é do chamador.
@@ -590,9 +600,9 @@ export async function schemaEFormulario(objectApiName, { specSoql, recordTypeDev
 
   // A ordem coloca o schema, que é o pesado, POR ÚLTIMO: reduz a chance de o
   // batch cortar o que vem depois. É otimização — quem garante o resultado
-  // completo é o `batchDeQueries`, que confere `done` e refaz o que veio
+  // completo é o `consultasEmLote`, que confere `done` e refaz o que veio
   // cortado. Ver a explicação e as medições lá.
-  const { raw, request, refeitos, registros } = await batchDeQueries({
+  const { raw, request, refeitos, registros } = await consultasEmLote({
     spec: specSoql,
     recordType: palpite ? qRt : null,
     dependentes: qDependentes,

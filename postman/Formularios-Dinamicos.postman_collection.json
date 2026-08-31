@@ -197,7 +197,7 @@
               }
             ],
             "url": {
-              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/composite/batch",
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/composite",
               "host": [
                 "{{instanceUrl}}"
               ],
@@ -205,20 +205,19 @@
                 "services",
                 "data",
                 "v{{apiVersion}}",
-                "composite",
-                "batch"
+                "composite"
               ]
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"batchRequests\": [\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/query?q=SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Page__c, Width__c, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c, PublicLabel__c, Description__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c, IsRequired__c, IsReadOnly__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, ConditionFieldApiName__c, Operator__c, Value__c, Effect__c, FilterLogicType__c, FilterLogic__c, Body__c, IsRepeating__c, ItemLabel__c, AddButtonText__c, Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true ORDER BY Sort__c NULLS FIRST, Name\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/query?q=SELECT Id, Name, DeveloperName FROM RecordType WHERE SobjectType = '{{objectApiName}}' AND DeveloperName = '{{recordTypeDevName}}' LIMIT 1\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/query?q=SELECT DurableId, QualifiedApiName, ControllingFieldDefinitionId FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND ControllingFieldDefinitionId != null\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/query?q=SELECT QualifiedApiName, Label, DataType, Length, Precision, Scale, IsNillable, IsCalculated, InlineHelpText, IsDependentPicklist, IsCreatable, IsUpdatable, DurableId FROM EntityParticle WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND IsCreatable = true\"\n    }\n  ]\n}",
+              "raw": "{\n  \"allOrNone\": false,\n  \"compositeRequest\": [\n    {\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Page__c, Width__c, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c, PublicLabel__c, Description__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c, IsRequired__c, IsReadOnly__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, ConditionFieldApiName__c, Operator__c, Value__c, Effect__c, FilterLogicType__c, FilterLogic__c, Body__c, IsRepeating__c, ItemLabel__c, AddButtonText__c, Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true ORDER BY Sort__c NULLS FIRST, Name\",\n      \"referenceId\": \"especificacao\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, DeveloperName FROM RecordType WHERE SobjectType = '{{objectApiName}}' AND DeveloperName = '{{recordTypeDevName}}' LIMIT 1\",\n      \"referenceId\": \"recordType\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT DurableId, QualifiedApiName, ControllingFieldDefinitionId FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND ControllingFieldDefinitionId != null\",\n      \"referenceId\": \"dependentes\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT QualifiedApiName, Label, DataType, Length, Precision, Scale, IsNillable, IsCalculated, InlineHelpText, IsDependentPicklist, IsCreatable, IsUpdatable, DurableId FROM EntityParticle WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND IsCreatable = true\",\n      \"referenceId\": \"schema\"\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
             },
-            "description": "Quatro subrequisições: a especificação inteira do formulário, o Record Type de destino, as dependências de picklist e o schema dos campos.\n\nO Record Type cabe aqui porque o DeveloperName vem do CATÁLOGO, que o cliente já leu para montar o seletor. Sem ele a consulta dependeria do retorno da especificação, e num composite/batch as subrequisições são independentes.\n\nA ORDEM não é estética: o batch corta por tamanho ACUMULADO e devolve 200 mesmo assim. Medido nesta org — a especificação sozinha traz 38 linhas; colocada DEPOIS do schema (397 campos, 160 KB) traz 1, com done: false. Por isso o schema vai por último, e por isso o teste abaixo confere `done` em todas."
+            "description": "Quatro subrequisições: a especificação inteira do formulário, o Record Type de destino, as dependências de picklist e o schema dos campos.\n\nO Record Type cabe aqui porque o DeveloperName vem do CATÁLOGO, que o cliente já leu para montar o seletor. Sem ele a consulta dependeria do retorno da especificação.\n\nÉ /composite e NÃO /composite/batch, por um motivo medido: o batch devolve query cortada — \"done\": false com parte dos registros — junto de um status 200. Nesta org, a especificação (38 linhas de 44 colunas) vinha com 1 registro quando colocada depois do schema (397 campos). Trinta e oito registros não chegam perto do limite de 2.000 do SOQL: o corte é do batch, não da consulta. O /composite devolve tudo inteiro e ainda é mais rápido — 331 ms contra 499 ms.\n\nallOrNone: false porque aqui só se lê, e uma consulta pode falhar sem invalidar as outras. Com true, uma falha derruba as demais com PROCESSING_HALTED."
           },
           "event": [
             {
@@ -227,28 +226,36 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200', () => pm.response.to.have.status(200));",
-                  "const r = pm.response.json().results;",
-                  "const nomes = ['especificação', 'recordType', 'dependentes', 'schema'];",
+                  "const r = pm.response.json().compositeResponse;",
                   "",
-                  "// `done: false` é resultado ERRADO, não parcial — e vem com status 200.",
-                  "// Sem esta checagem, um formulário sem seções passaria por formulário válido.",
-                  "pm.test('nenhuma subrequisição truncada', () => {",
-                  "  r.forEach((x, i) => pm.expect(x.result.done, nomes[i]).to.not.eql(false));",
+                  "// O referenceId volta na resposta, então o mapeamento é por nome e não por",
+                  "// posição — uma subrequisição a mais no meio não desalinha nada.",
+                  "const por = {};",
+                  "r.forEach((x) => (por[x.referenceId] = x));",
+                  "",
+                  "pm.test('nenhuma subrequisição falhou', () => {",
+                  "  r.forEach((x) => pm.expect(x.httpStatusCode, x.referenceId).to.eql(200));",
                   "});",
                   "",
-                  "// Truncamento não é a única forma de vir pouca coisa: com `formId` vazio a",
-                  "// SOQL vira `Form__c = null`, que casa com a linha raiz e devolve 1 registro",
-                  "// com done=true. Um formulário só com a raiz não tem seção nenhuma.",
+                  "// `done: false` é resultado ERRADO, não parcial — e vem com status 200. É o",
+                  "// que o /composite/batch fazia com a especificação. Aqui não acontece, mas",
+                  "// conferir custa uma comparação e não conferir custa um formulário sem seções.",
+                  "pm.test('nenhuma subrequisição cortada', () => {",
+                  "  r.forEach((x) => pm.expect(x.body.done, x.referenceId).to.not.eql(false));",
+                  "});",
+                  "",
+                  "// Com formId vazio a SOQL vira `Form__c = null`, que casa com a linha raiz e",
+                  "// devolveria 1 registro com done=true — passando por sucesso.",
                   "pm.test('a especificação veio inteira, não só a raiz', () => {",
-                  "  pm.expect(r[0].result.totalSize, `formId = {{formId}}`).to.be.above(1);",
+                  "  pm.expect(por.especificacao.body.totalSize, `formId = {{formId}}`).to.be.above(1);",
                   "});",
                   "",
-                  "r.forEach((x, i) => console.log(`${nomes[i]}: ${x.result.totalSize} registros, done=${x.result.done}`));",
+                  "r.forEach((x) => console.log(`${x.referenceId}: ${x.body.totalSize} registros, done=${x.body.done}`));",
                   "",
                   "const guardar = (chave, valor) =>",
                   "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
                   "",
-                  "const rt = r[1].result.records[0];",
+                  "const rt = por.recordType.body.records[0];",
                   "if (rt) {",
                   "  guardar('recordTypeId', rt.Id);",
                   "  console.log('recordTypeId = ' + rt.Id);",

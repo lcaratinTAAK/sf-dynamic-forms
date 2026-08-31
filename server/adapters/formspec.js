@@ -18,15 +18,15 @@
  *   Content     bloco de texto estático
  *
  * Chamadas — duas:
- *   POST /composite/batch                              schema dos campos,
+ *   POST /composite                                    schema dos campos,
  *                                                      dependências de picklist,
  *                                                      a especificação inteira
  *                                                      e o Record Type de destino
  *   GET  /ui-api/object-info/{obj}/picklist-values/{rt} valores válidos
  *
- * As picklists ficam de fora por imposição do Salesforce: `composite/batch`
- * recusa recursos de ui-api com INVALID_BATCH_REQUEST, e é a única fonte que
- * respeita Record Type e devolve as dependências.
+ * As picklists ficam de fora por imposição do Salesforce: o composite recusa
+ * recursos de ui-api com INVALID_BATCH_REQUEST, e é a única fonte que respeita
+ * Record Type e devolve as dependências.
  *
  * O que NÃO se guarda aqui, de propósito: label, tipo, tamanho e ajuda do
  * campo. Isso é metadado do campo e vem do schema em tempo de leitura.
@@ -100,8 +100,8 @@ export async function buildContract({ formId, objectApiName, recordTypeDevName =
   //
   //    O Record Type cabe aqui porque o DeveloperName vem do CATÁLOGO, que o
   //    cliente já leu para montar o seletor. Sem ele, a consulta dependeria do
-  //    retorno da especificação, e num `composite/batch` as subrequisições são
-  //    independentes — era isso que obrigava a duas chamadas separadas.
+  //    retorno da especificação, e as subrequisições do lote são independentes
+  //    — era isso que obrigava a duas chamadas separadas.
   const q = querySpec(formId);
   const pacote = await schemaEFormulario(objectApiName, {
     specSoql: q,
@@ -110,7 +110,7 @@ export async function buildContract({ formId, objectApiName, recordTypeDevName =
 
   track(
     'Metadado dos campos + especificação do formulário',
-    `/composite/batch → EntityParticle + FieldDefinition (${objectApiName}) + ${OBJ}` +
+    `/composite → EntityParticle + FieldDefinition (${objectApiName}) + ${OBJ}` +
       (recordTypeDevName ? ' + RecordType' : ''),
     { replayId: `pacote:${objectApiName}:${formId}:${recordTypeDevName ?? ''}`, method: 'POST' }
   );
@@ -129,14 +129,15 @@ export async function buildContract({ formId, objectApiName, recordTypeDevName =
     avisos.push('recordTypeDevName recebido em formato inválido; ignorado e resolvido pela especificação.');
   }
 
-  // O batch corta por tamanho acumulado e devolve 200 mesmo assim. Quando isso
-  // acontece a consulta é refeita sozinha, e a chamada extra aparece aqui —
-  // senão o inspetor mostraria duas chamadas onde houve três.
+  // Uma subrequisição pode voltar CORTADA — `done: false`, com parte dos
+  // registros — e ainda assim com status 200. Nesse caso ela é refeita sozinha,
+  // e a viagem extra aparece aqui: senão o inspetor mostraria duas chamadas
+  // onde houve três.
   for (const nome of pacote.refeitos ?? []) {
-    track(`Refazendo "${nome}" — truncado no batch`, `/query (fora do composite)`);
+    track(`Refazendo "${nome}" — veio cortado do lote`, '/query (fora do composite)');
     avisos.push(
-      `A subrequisição "${nome}" voltou truncada do composite/batch e foi refeita sozinha. ` +
-        'O batch corta por tamanho acumulado; considere reduzir as colunas do schema.'
+      `A subrequisição "${nome}" voltou cortada do lote e foi refeita sozinha. ` +
+        'Custou uma viagem extra; vale olhar a largura das linhas dessa consulta.'
     );
   }
 
