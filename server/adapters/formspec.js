@@ -84,25 +84,41 @@ export const querySpec = (formId) =>
   `WHERE (Id = '${formId}' OR Form__c = '${formId}') AND IsActive__c = true ` +
   `ORDER BY Sort__c NULLS FIRST, Name`;
 
+/**
+ * O catálogo — as linhas raiz. Uma SOQL, antes de haver formulário escolhido.
+ *
+ * Devolve também a descrição da chamada. Ela É uma ida ao Salesforce, e ficava
+ * fora do inspetor porque acontece em outra rota: a tela mostrava duas chamadas
+ * onde houve três, e quem lesse concluiria que o catálogo sai de graça.
+ */
 export async function listarFormularios() {
-  const r = await soql(queryCatalogo());
-  return (r.records || []).map((f) => ({
-    id: f.Id,
-    key: f.FormKey__c ?? null,
-    version: f.Version__c ?? null,
-    status: f.Status__c ?? null,
-    versionKey: f.VersionKey__c ?? null,
-    label: f.PublicLabel__c || f.Name,
-    description: f.Description__c ?? null,
-    objectApiName: f.ObjectApiName__c,
-    recordTypeDevName: f.TargetRecordTypeDevName__c,
-    typeFieldApiName: f.TypeFieldApiName__c ?? null,
-    typeValue: f.TypeValue__c ?? null,
-    priorityFieldApiName: f.PriorityFieldApiName__c ?? null,
-    priorityValue: f.PriorityValue__c ?? null,
-    versionFieldApiName: f.VersionFieldApiName__c ?? null,
-    channel: f.Channel__c ?? null,
-  }));
+  const q = queryCatalogo();
+  const r = await soql(q);
+  return {
+    chamada: {
+      label: 'Catálogo de formulários',
+      path: `/query?q=${q}`,
+      method: 'GET',
+      quando: 'ao abrir, antes de escolher',
+    },
+    forms: (r.records || []).map((f) => ({
+      id: f.Id,
+      key: f.FormKey__c ?? null,
+      version: f.Version__c ?? null,
+      status: f.Status__c ?? null,
+      versionKey: f.VersionKey__c ?? null,
+      label: f.PublicLabel__c || f.Name,
+      description: f.Description__c ?? null,
+      objectApiName: f.ObjectApiName__c,
+      recordTypeDevName: f.TargetRecordTypeDevName__c,
+      typeFieldApiName: f.TypeFieldApiName__c ?? null,
+      typeValue: f.TypeValue__c ?? null,
+      priorityFieldApiName: f.PriorityFieldApiName__c ?? null,
+      priorityValue: f.PriorityValue__c ?? null,
+      versionFieldApiName: f.VersionFieldApiName__c ?? null,
+      channel: f.Channel__c ?? null,
+    })),
+  };
 }
 
 export async function buildContract({ formId, objectApiName, recordTypeDevName = null }) {

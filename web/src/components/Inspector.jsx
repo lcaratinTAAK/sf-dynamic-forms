@@ -10,7 +10,7 @@ const TABS = [
   { id: 'payload', label: 'Payload' },
 ];
 
-export default function Inspector({ contract, submitResult, createResult, creating, onCreate }) {
+export default function Inspector({ contract, chamadaDoCatalogo, submitResult, createResult, creating, onCreate }) {
   const [tab, setTab] = useState('calls');
 
   // Ao gerar o payload, traz o inspetor para a aba certa — senão o clique
@@ -34,7 +34,7 @@ export default function Inspector({ contract, submitResult, createResult, creati
         ))}
       </div>
 
-      {tab === 'calls' && <Calls contract={contract} />}
+      {tab === 'calls' && <Calls contract={contract} chamadaDoCatalogo={chamadaDoCatalogo} />}
       {tab === 'contract' && <pre className="json">{JSON.stringify(contract, null, 2)}</pre>}
       {tab === 'payload' && (
         <Payload
@@ -49,15 +49,22 @@ export default function Inspector({ contract, submitResult, createResult, creati
   );
 }
 
-function Calls({ contract }) {
+function Calls({ contract, chamadaDoCatalogo }) {
   const { calls = [], warnings = [] } = contract.diagnostics || {};
   const fd = contract.formDefinition;
+
+  // A busca do catálogo é uma ida ao Salesforce como qualquer outra — só
+  // acontece ANTES da seleção, noutra rota, e por isso não está em
+  // `diagnostics.calls`. Sem ela aqui a tela contava duas chamadas onde houve
+  // três, e o catálogo parecia sair de graça.
+  const todas = chamadaDoCatalogo ? [chamadaDoCatalogo, ...calls] : calls;
 
   return (
     <>
       <div className="note">
-        Estas são as chamadas que o BFF fez ao Salesforce para montar o contrato.
-        Trocar a fonte muda esta lista — o formulário ao lado não muda.
+        Todas as idas ao Salesforce para chegar neste formulário — inclusive a do
+        catálogo, que acontece antes da seleção. Trocar a fonte muda esta lista; o
+        formulário ao lado não muda.
       </div>
 
       {fd && (
@@ -93,7 +100,7 @@ function Calls({ contract }) {
       ))}
 
       <ol className="calls">
-        {calls.map((c, i) => (
+        {todas.map((c, i) => (
           <Call key={`${c.path}-${i}`} call={c} index={i} />
         ))}
       </ol>
@@ -140,6 +147,9 @@ function Call({ call, index }) {
         <div>
           <div className="n">{String(index + 1).padStart(2, '0')}</div>
           <div className="label">{call.label}</div>
+          {/* Nem toda chamada acontece no mesmo momento: a do catálogo é
+              anterior à seleção. Sem isso, a lista sugere uma sequência única. */}
+          {call.quando && <div className="quando">{call.quando}</div>}
         </div>
         <button className="btn ghost small" onClick={simular} disabled={estado === 'carregando'}>
           {estado === 'carregando' ? 'Chamando…' : estado === 'pronto' ? 'Ocultar' : 'Ver retorno'}

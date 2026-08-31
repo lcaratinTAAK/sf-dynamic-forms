@@ -933,3 +933,11 @@ dl.created.injected dt.mono {
 }
 .verbo-get { color: var(--text-dim); }
 .verbo-post { color: var(--accent); }
+
+/* O momento da chamada. A do catálogo é anterior à seleção, e sem essa
+   marca a lista parece uma sequência única. */
+.call .quando {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}

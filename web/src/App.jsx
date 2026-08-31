@@ -36,6 +36,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const [session, setSession] = useState(null);
   const [catalogo, setCatalogo] = useState(null);
+  const [chamadaDoCatalogo, setChamadaDoCatalogo] = useState(null);
 
   useEffect(() => {
     api.getWhoami().then(setSession).catch(() => setSession(null));
@@ -51,6 +52,11 @@ export default function App() {
       .getForms(CATALOGO_DE[source])
       .then((r) => {
         setForms(r.forms);
+        // A busca do catálogo é uma ida ao Salesforce como qualquer outra. Ela
+        // acontece em outra rota, então não entra em diagnostics.calls — mas
+        // precisa aparecer no inspetor, senão a tela conta duas chamadas onde
+        // houve três.
+        setChamadaDoCatalogo(r.chamada ?? null);
         setFormId((atual) =>
           r.forms.some((f) => f.id === atual) ? atual : r.forms[0]?.id ?? ''
         );
@@ -288,6 +294,7 @@ export default function App() {
           {contract ? (
             <Inspector
               contract={contract}
+              chamadaDoCatalogo={usaCatalogo(source) ? chamadaDoCatalogo : null}
               submitResult={submitResult}
               createResult={createResult}
               creating={creating}

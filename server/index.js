@@ -101,8 +101,16 @@ app.get('/api/forms', async (req, res) => {
     // A fonte custom tem catálogo próprio: as linhas raiz de FormDefinition__c.
     // Uma SOQL, sem composite — não há flow nem Record Type para resolver.
     if (source === 'FORM_SPEC') {
-      const forms = await formspec.listarFormularios();
-      return ok(res, { object: config.objectApiName, via: 'SOQL em FormDefinition__c', forms, warnings: [] });
+      const { forms, chamada } = await formspec.listarFormularios();
+      // `chamada` vai junto para o inspetor poder contá-la: ela é uma ida ao
+      // Salesforce como qualquer outra, só acontece antes da seleção.
+      return ok(res, {
+        object: config.objectApiName,
+        via: 'SOQL em FormDefinition__c',
+        forms,
+        chamada,
+        warnings: [],
+      });
     }
 
     const { forms, warnings } = await discoverFormCatalog({
