@@ -10,7 +10,7 @@
 | Date | Description |
 | :---- | :---- |
 | 28 de ago. de 2026 | Started |
-|  |  |
+| 31 de ago. de 2026 | Dividida em duas etapas; VO da tabela por Record Type; retornos de API; contrato rebaixado a proposta |
 
 ## Approvers
 
@@ -24,7 +24,14 @@
 
 Esta RFC propõe substituir o Cognito Forms por formulários renderizados a partir de uma definição que vive no Salesforce. Hoje 53 formulários do Cognito coletam solicitações de clientes — alteração de dados bancários, rescisão, reparos, entre outras — e o resultado chega ao Salesforce por integração, fora do modelo de dados do Caso.
 
-A proposta é inverter a direção: a definição do formulário passa a ser um registro na org, um BFF a traduz para um contrato normalizado, e o preenchimento cria o Caso diretamente, com os campos já no lugar certo. O documento especifica o modelo de dados, as chamadas de API, o contrato entre o Salesforce e os canais que consomem, e o que fica de responsabilidade de cada lado.
+A proposta é inverter a direção: a definição do formulário passa a ser um registro na org, e o preenchimento cria o Caso diretamente, com os campos já no lugar certo.
+
+O documento está dividido em **duas etapas**, que podem ser lidas — e implementadas — separadamente:
+
+| | Etapa | Escopo | Quem executa |
+| :---- | :---- | :---- | :---- |
+| **1** | A definição no Salesforce | modelo de dados, regras, e a tela onde operação monta o formulário | time Salesforce |
+| **2** | O consumo pelas APIs | quais chamadas fazer, com quais payloads, e o que cada uma devolve | time consumidor |
 
 Quatro fontes de definição foram implementadas e comparadas numa prova de conceito. Esta RFC propõe **uma delas** — um objeto customizado, `SI_FormSpec__c` — e registra por que as outras três foram descartadas.
 
@@ -33,13 +40,14 @@ Quatro fontes de definição foram implementadas e comparadas numa prova de conc
 ## Goals
 
 * Definir o modelo de dados que descreve um formulário dentro do Salesforce, incluindo estrutura, regras condicionais, validação e anexos exigidos.
-* Especificar o **contrato normalizado** entre o Salesforce e os canais que consomem formulários, de modo que a fonte da definição seja detalhe de implementação e possa mudar sem quebrar consumidor.
-* Especificar as chamadas de API necessárias para montar e submeter um formulário, com o custo medido de cada uma.
-* Descrever o modelo operacional: quem cria um formulário novo, com qual ferramenta, e sem depender de deploy.
+* Especificar, para cada Record Type da tabela, **quais colunas são significativas** — a tabela é compartilhada e a consulta é unificada, então essa delimitação é o que torna o retorno interpretável.
+* Especificar as **chamadas de API** necessárias para montar e submeter um formulário: método, URL, payload enviado e forma do retorno.
+* Descrever a tela de configuração no Salesforce e o modelo operacional: quem cria um formulário novo, com qual ferramenta, e sem depender de deploy.
 
 ## Non-Goals
 
-* Definir a experiência visual dos canais que consomem o contrato. O contrato descreve *o que* renderizar, não *como*.
+* **Definir o contrato que o front consome.** Isso é responsabilidade de quem constrói o BFF. Esta RFC entrega as consultas e os retornos; o formato normalizado aparece como *proposta*, não como especificação.
+* Definir a experiência visual dos canais que consomem os dados.
 * Especificar a autenticação do cliente final. É pré-requisito para produção e está listado em Risks, mas o desenho de identidade é assunto de outra RFC.
 * Migrar os 53 formulários do Cognito. Esta RFC habilita a migração; o plano de corte por formulário é trabalho subsequente.
 * Alterar o modelo de atendimento dos Casos criados — roteamento, filas e SLA seguem como estão.
@@ -69,28 +77,46 @@ Os 53 formulários do Cognito foram extraídos e catalogados: todo tipo de campo
 ## Visão geral
 
 ```
-canais            BFF                     Salesforce
-────────          ─────────────────       ──────────────────
-Magic Link  ──┐                           SI_FormSpec__c   (a definição)
-Site / App  ──┼──▶  contrato       ──▶    EntityParticle   (o schema)
-Bot         ──┘     normalizado           Case             (o destino)
+  CANAIS                    CONSUMIDOR                     SALESFORCE
+  ──────                    ──────────                     ──────────
+
+  Magic Link  ─┐            ┌──────────────────┐           SI_FormSpec__c
+  Site / App  ─┼──────────▶ │  leitura das     │ ────────▶  a definição
+  Bot         ─┘            │  APIs REST       │
+                            │                  │           RecordType
+                            │  monta a tela e  │            o destino
+                            │  avalia as       │
+                            │  regras          │           EntityParticle
+                            └──────────────────┘            o schema dos campos
+                                     │
+                                     │  cria o Caso           ui-api
+                                     └──────────────────▶     picklists por RT
+
+                                                            Case (+ filhos)
+                                                             o destino
 ```
 
-O BFF é o único componente que fala com a org. Os canais conhecem apenas o contrato normalizado e não sabem de que fonte a definição veio.
+**A avaliação das regras acontece do lado do consumidor**, e em dois momentos: ao desenhar a tela (quais componentes aparecem, quais estão exigidos) e ao montar o envio (o que vai no payload, o que trava). O Salesforce não avalia regra nenhuma em tempo de leitura — ele devolve a definição, e a definição contém as condições em forma de dado.
+
+Recomendação: usar **o mesmo código** nos dois momentos. Se a checagem da tela e a do envio forem implementações distintas, elas divergem, e a divergência aparece como campo exigido que o usuário não consegue ver.
+
+---
+
+# ETAPA 1 — A definição no Salesforce
 
 ## O modelo de dados
 
 A definição inteira vive num objeto customizado, `SI_FormSpec__c`. O Record Type discrimina o papel de cada linha, e `Parent__c` monta a árvore.
 
-| Record Type | O que é | O que guarda |
+| Record Type | O que é | Filhos que aceita |
 | :---- | :---- | :---- |
-| `Form` | a raiz | objeto e Record Type de destino, `Type` do Caso, canal, rótulo público, descrição |
-| `Section` | agrupamento visual | nome, ordem; visibilidade própria via regras filhas |
-| `RepeatingSection` | lista repetível | objeto filho, campo de vínculo, mínimo e máximo de itens, rótulo do item |
-| `Field` | um campo | `FieldApiName__c` e as escolhas de formulário: obrigatório, oculto, largura, valor padrão, sobrescritas de rótulo e ajuda |
-| `Attachment` | documento exigido | código do documento, tipos aceitos, mínimo e máximo de arquivos, tamanho |
-| `Content` | bloco de texto | HTML em `Body__c` |
-| `Rule` | uma condição | campo observado, operador, valor, origem do valor e efeito — filha do componente que afeta |
+| `Form` | a raiz | seções, listas e componentes soltos |
+| `Section` | agrupamento visual | campos, textos e anexos |
+| `RepeatingSection` | lista repetível | campos — que endereçam o objeto **filho**, não o Caso |
+| `Field` | um campo do objeto | regras |
+| `Attachment` | documento exigido | regras |
+| `Content` | bloco de texto | regras |
+| `Rule` | uma condição | — |
 
 Três decisões merecem registro.
 
@@ -98,301 +124,588 @@ Três decisões merecem registro.
 
 **A especificação não guarda rótulo, tipo, tamanho nem texto de ajuda do campo.** Isso é metadado do campo e é lido do schema em tempo de execução. Duplicar criaria uma segunda verdade, que passa a divergir no dia em que alguém alterar o campo em Setup. Existem sobrescritas explícitas (`LabelOverride__c`, `HelpTextOverride__c`) para o caso concreto de o rótulo do campo não caber na pergunta — o limite de rótulo no Salesforce é 40 caracteres, e várias perguntas do Cognito passam disso.
 
-**A referência ao Record Type de destino é por `DeveloperName`, não por Id.** Id de Record Type muda entre orgs e não sobreviveria a uma promoção de forno para produção. O preço é resolvê-lo na leitura — uma subrequisição de 0,3 KB, que cabe no mesmo composite da especificação.
+**A referência ao Record Type de destino é por `DeveloperName`, não por Id.** Id de Record Type muda entre orgs e não sobreviveria a uma promoção de forno para produção.
+
+## Quais colunas importam em cada Record Type
+
+A tabela é compartilhada e a consulta é unificada: **uma linha traz todas as colunas, e a maioria vem nula**. Uma linha `Rule` não usa nenhuma coluna de campo; uma linha `Field` não usa nenhuma coluna de regra. Sem esta delimitação, o retorno não é interpretável.
+
+`O` = obrigatório · `•` = usado · em branco = deve ser ignorado nesse Record Type.
+
+### Colunas comuns
+
+| Coluna | Tipo | `Form` | `Section` | `Repeat.` | `Field` | `Attach.` | `Content` | `Rule` |
+| :---- | :---- | :----: | :----: | :----: | :----: | :----: | :----: | :----: |
+| `Name` | Text(80) | O | O | O | • | O | • | • |
+| `Form__c` | Lookup | | O | O | O | O | O | O |
+| `Parent__c` | Lookup | | • | • | • | • | • | O |
+| `Sort__c` | Number | | • | • | • | • | • | • |
+| `IsActive__c` | Checkbox | O | • | • | • | • | • | • |
+
+`Parent__c` vazio significa **filho direto da raiz**. Em `Rule` ele é obrigatório e aponta para o componente que a regra afeta. Em `Rule`, `Sort__c` é o **número** usado na expressão de lógica customizada.
+
+`IsActive__c = false` remove a linha da leitura. Desativar a raiz tira o formulário do catálogo.
+
+### `Form` — a raiz
+
+| Coluna | Tipo | | O que é |
+| :---- | :---- | :----: | :---- |
+| `ObjectApiName__c` | Text | O | objeto que o formulário cria. Hoje sempre `Case` |
+| `TargetRecordTypeDevName__c` | Text | O | `DeveloperName` do Record Type de destino |
+| `CaseType__c` | Text | • | gravado em `Type` sem virar pergunta |
+| `Channel__c` | Picklist | • | canal ao qual o formulário pertence |
+| `PublicLabel__c` | Text | • | rótulo exibido ao cliente. Sem ele, usa-se `Name` |
+| `Description__c` | LongText | • | texto de abertura |
+
+`Form__c` e `Parent__c` ficam **vazios** na raiz — é assim que ela se identifica.
+
+### `Section` — agrupamento
+
+| Coluna | Tipo | | O que é |
+| :---- | :---- | :----: | :---- |
+| `FilterLogicType__c` | Picklist | • | `ALL` (padrão), `ANY` ou `CUSTOM` |
+| `FilterLogic__c` | Text | • | a expressão, quando `CUSTOM`. Ex.: `1 AND (2 OR 3)` |
+
+Uma seção oculta esconde tudo que está dentro dela, inclusive campos obrigatórios — que deixam de ser exigidos enquanto ela estiver oculta.
+
+### `RepeatingSection` — lista repetível
+
+| Coluna | Tipo | | O que é |
+| :---- | :---- | :----: | :---- |
+| `ChildObjectApiName__c` | Text | O | objeto de cada item. Ex.: `CaseMember__c` |
+| `ChildRelationshipField__c` | Text | O | campo de lookup do filho para o pai |
+| `ItemLabel__c` | Text | • | rótulo de cada item. Ex.: "Representante" |
+| `AddButtonText__c` | Text | • | texto do botão de adicionar |
+| `MinItems__c` | Number | • | mínimo exigido no envio |
+| `MaxItems__c` | Number | • | máximo aceito |
+| `FilterLogicType__c` / `FilterLogic__c` | | • | visibilidade da lista inteira |
+
+Sem `ChildObjectApiName__c` **ou** sem `ChildRelationshipField__c` a lista é inutilizável e deve ser descartada com aviso — não há para onde gravar os itens.
+
+**Atenção:** os `Field` filhos de uma `RepeatingSection` referenciam campos do **objeto filho**, não do `Case`. Quem for buscar o schema desses campos precisa consultar o outro objeto.
+
+### `Field` — um campo do objeto
+
+| Coluna | Tipo | | O que é |
+| :---- | :---- | :----: | :---- |
+| `FieldApiName__c` | Text | O | API name do campo no objeto |
+| `LabelOverride__c` | Text | • | substitui o rótulo do schema |
+| `HelpTextOverride__c` | Text | • | substitui o texto de ajuda do schema |
+| `Placeholder__c` | Text | • | texto de exemplo dentro do campo |
+| `DefaultValue__c` | Text | • | valor inicial |
+| `IsRequired__c` | Checkbox | • | obrigatório **neste formulário** |
+| `IsReadOnly__c` | Checkbox | • | exibido, não editável, não enviado |
+| `IsHidden__c` | Checkbox | • | **não desenhado**, mas vai no payload com `DefaultValue__c` |
+| `Width__c` | Picklist | • | `FULL`, `HALF` ou `THIRD` |
+| `FilterLogicType__c` / `FilterLogic__c` | | • | modo da **visibilidade** |
+| `RequiredLogicType__c` | Picklist | • | modo da **obrigatoriedade condicional**: `ALL` ou `ANY` |
+| `ValidationLogicType__c` | Picklist | • | modo da **validação**: `ALL` ou `ANY` |
+| `Message__c` | Text | • | mensagem exibida quando a validação reprova |
+
+Os três modos de lógica são separados de propósito: um campo pode *aparecer* sob uma condição e só ser *exigido* sob outra.
+
+**`Message__c` vive no componente, não na regra.** É a pegadinha mais provável para quem consumir: a condição está nas linhas `Rule` filhas, a mensagem está no pai.
+
+### `Attachment` — documento exigido
+
+| Coluna | Tipo | | O que é |
+| :---- | :---- | :----: | :---- |
+| `DocumentCode__c` | Text | • | código do documento. Ex.: `RG_FRENTE` |
+| `AcceptedTypes__c` | Text | • | extensões separadas por vírgula |
+| `MinFiles__c` | Number | • | mínimo. Sem valor, `IsRequired__c` implica 1 |
+| `MaxFiles__c` | Number | • | máximo |
+| `MaxSizeMb__c` | Number | • | tamanho por arquivo |
+| `IsRequired__c` | Checkbox | • | exigido para enviar |
+| `Width__c` | Picklist | • | `FULL`, `HALF` ou `THIRD` |
+| os três modos de lógica | | • | anexo aceita condição como qualquer componente |
+
+`Name` é o rótulo exibido — "Documento com foto", não um identificador interno.
+
+### `Content` — bloco de texto
+
+| Coluna | Tipo | | O que é |
+| :---- | :---- | :----: | :---- |
+| `Body__c` | RichText | O | o conteúdo exibido |
+| `Width__c` | Picklist | • | `FULL`, `HALF` ou `THIRD` |
+| `FilterLogicType__c` / `FilterLogic__c` | | • | visibilidade |
+
+Aqui `Name` é identificação interna e **não deve ser exibido** — o que aparece é `Body__c`.
+
+### `Rule` — uma condição
+
+| Coluna | Tipo | | O que é |
+| :---- | :---- | :----: | :---- |
+| `Parent__c` | Lookup | O | o componente que esta regra afeta |
+| `ConditionFieldApiName__c` | Text | O | campo observado |
+| `Operator__c` | Picklist | O | ver tabela de operadores |
+| `Value__c` | Text | • | valor comparado; vazio em `IS_NULL` / `IS_NOT_NULL` |
+| `ValueSource__c` | Picklist | • | `LITERAL` (padrão), `FIELD` ou `TOKEN` |
+| `Effect__c` | Picklist | • | `SHOW` (padrão), `REQUIRE` ou `BLOCK` |
+| `Sort__c` | Number | • | o número da condição na expressão `CUSTOM` |
+
+### Colunas obsoletas
+
+`Page__c` e `IsRepeating__c` existem na tabela e **não devem ser lidas**. A primeira é de um desenho de paginação abandonado; a segunda foi substituída pelo Record Type `RepeatingSection`. Ambas devem sair do objeto.
 
 ## Regras: uma máquina de filtros, três efeitos
 
-Uma `Rule` é filha do componente que ela afeta e carrega um efeito. O **modo** da lógica (ALL, ANY, CUSTOM) fica no componente alvo, não na regra — mesmo desenho do "Show component when" da FlexiPage. As regras são os filtros numerados, e o número é a ordem de cada uma.
+Uma `Rule` é filha do componente que ela afeta e carrega um efeito. O **modo** da lógica fica no componente alvo, não na regra — mesmo desenho do "Show component when" da FlexiPage.
 
-| `Effect__c` | Vira no contrato | Quando as condições batem |
+| `Effect__c` | Efeito quando as condições batem | Modo vem de |
 | :---- | :---- | :---- |
-| `SHOW` | `visibility` | o componente aparece |
-| `REQUIRE` | `requiredWhen` | o campo passa a ser exigido |
-| `BLOCK` | `validation` | o preenchimento está **inválido** e o envio trava |
-
-Os três grupos são independentes porque um campo pode *aparecer* sob uma condição e só ser *exigido* sob outra. Reaproveitar um grupo só forçaria as duas a coincidirem.
+| `SHOW` | o componente aparece | `FilterLogicType__c` + `FilterLogic__c` |
+| `REQUIRE` | o campo passa a ser exigido | `RequiredLogicType__c` |
+| `BLOCK` | o preenchimento está **inválido** e o envio trava | `ValidationLogicType__c` + `Message__c` |
 
 A condição de `BLOCK` descreve **quando está errado**, não quando está certo. É a semântica do Cognito, onde a expressão dispara a mensagem, e manter a inversão foi o que permitiu traduzir as 23 validações do corpus sem reescrever nenhuma.
 
-O valor do outro lado da comparação tem três origens:
+Uma regra `BLOCK` sem mensagem deve ser descartada com aviso, em vez de travar o envio sem explicar por quê.
 
-* `LITERAL` — o texto configurado.
-* `FIELD` — o valor é o nome de outro campo; a comparação é campo a campo.
-* `TOKEN` — datas relativas: `HOJE`, `HOJE+30`, `HOJE-7`, `AGORA`.
+### Operadores
 
-O token existe porque o Cognito resolve datas relativas com campos ocultos calculados: um formulário do corpus tem dois campos invisíveis, `DataHoje` e `DataD2`, criados apenas para a validação poder compará-los. O token faz o mesmo sem exigir um motor de cálculo na definição.
+| `Operator__c` | Comparação |
+| :---- | :---- |
+| `EQUALS` / `NOT_EQUALS` | igualdade textual |
+| `CONTAINS` / `NOT_CONTAINS` | substring |
+| `STARTS_WITH` | prefixo |
+| `GREATER_THAN` / `LESS_THAN` | numérica **ou** de data |
+| `IS_NULL` / `IS_NOT_NULL` | preenchimento; ignora `Value__c` |
 
-Uma regra `BLOCK` sem mensagem é descartada, com aviso em `diagnostics`, em vez de travar o envio sem explicar por quê.
+`GREATER_THAN` e `LESS_THAN` precisam tentar data **antes** de número: `Number('2026-08-27')` é `NaN`, e a comparação viraria `false` em silêncio — a regra nunca dispararia e ninguém descobriria olhando a configuração.
 
-## O contrato normalizado
+### Origem do valor comparado
 
-É o artefato durável desta proposta. Os canais conhecem apenas esta forma; trocar a fonte no Salesforce não pode alterá-la.
+| `ValueSource__c` | `Value__c` contém | Uso |
+| :---- | :---- | :---- |
+| `LITERAL` | o texto configurado | o caso comum |
+| `FIELD` | o API name de outro campo | comparação campo a campo |
+| `TOKEN` | `HOJE`, `HOJE+30`, `HOJE-7`, `AGORA` | datas relativas |
+
+O token existe porque o Cognito resolve datas relativas com campos ocultos calculados: um formulário do corpus tem dois campos invisíveis, criados apenas para a validação poder compará-los. O token faz o mesmo sem exigir um motor de cálculo na definição.
+
+## A tela de configuração no Salesforce
+
+O argumento inteiro depende disto: **se cada formulário novo virar uma release de engenharia, a solução não escala.** O configurador é uma LWC dentro do Salesforce, e o que ela edita são registros — nada aqui passa por deploy.
+
+🟡 **INSERIR PRINT — `builder-formulario.png`**
+*Legenda sugerida: o configurador, com paleta de componentes à esquerda, o formulário no centro e as propriedades à direita. A paleta traz Seção, Lista, Anexo e Texto; abaixo, os campos do objeto, filtráveis. Arrastar um campo para dentro de uma seção cria a linha `Field`. As condições aparecem sob o componente que elas afetam, e os campos ocultos ficam marcados como tal.*
+
+🟡 **INSERIR PRINT — `builder-propriedades.png`**
+*Legenda sugerida: as propriedades de um campo. O bloco no topo diz o que NÃO se guarda ali: rótulo, tipo e limites vêm do schema. Abaixo, os três grupos de filtro — visibilidade, obrigatoriedade e validação — cada um com sua lógica própria. "Valor digitado" é o seletor de `ValueSource__c`.*
+
+### O que sai disso
+
+As capturas seguintes são o mesmo formulário renderizado a partir da definição, sem uma linha de código específica para ele.
+
+🟡 **INSERIR PRINT — `form-condicional.png`**
+*Legenda sugerida: visibilidade e obrigatoriedade condicional. A seção só existe porque o solicitante é Parceiro; dentro dela, o CPF ganhou o asterisco pela mesma razão.*
+
+🟡 **INSERIR PRINT — `form-validacao.png`**
+*Legenda sugerida: validação customizada. A condição `BLOCK` bateu e a mensagem da regra apareceu; o envio fica travado enquanto ela estiver valendo.*
+
+🟡 **INSERIR PRINT — `form-lista.png`**
+*Legenda sugerida: lista repetível. Cada item vira um registro filho ligado ao Caso. O rótulo do item e o texto do botão vêm da definição; mínimo e máximo são validados no envio.*
+
+🟡 **INSERIR PRINT — `form-anexos.png`**
+*Legenda sugerida: anexos como componente posicionado, não como bloco no fim. Cada um carrega o código do documento, os tipos aceitos e os limites — e pode ter condição própria.*
+
+### Governança
+
+| Quem | O que faz | Precisa de deploy? |
+| :---- | :---- | :---- |
+| Operação | cria e edita formulários no configurador | não |
+| Administração | cria o campo no objeto, quando não existe | sim — é metadado |
+| Engenharia | evolui o configurador e o objeto de definição | sim |
+
+O caso que **exige** engenharia é campo novo no `Case`. Formulário novo com campos existentes, mudança de ordem, de texto, de regra ou de documento exigido é operação.
+
+---
+
+# ETAPA 2 — O consumo pelas APIs
+
+## O fluxo de chamadas
+
+```
+ CONSUMIDOR                                    SALESFORCE
+ ──────────                                    ──────────
+
+ ┌─ AO ABRIR ─ uma vez por sessão ────────────────────────────────┐
+ │                                                                │
+ │   POST /composite ──────────────────────────▶  catálogo        │
+ │                                                 + Record Types │
+ │   ◀───────── formulários, cada um com o Id do seu Record Type  │
+ │                                                                │
+ └────────────────────────────────────────────────────────────────┘
+
+ ┌─ AO ESCOLHER UM FORMULÁRIO ─ as duas em PARALELO ──────────────┐
+ │                                                                │
+ │   POST /composite ──────────────────────────▶  especificação   │
+ │                                                 + dependências │
+ │                                                 + schema       │
+ │                                                                │
+ │   GET /ui-api/…/picklist-values/{rtId} ─────▶  valores válidos │
+ │                                                                │
+ │   ◀──────────────────────── os dois retornos                   │
+ │   monta a tela                                                 │
+ │                                                                │
+ └────────────────────────────────────────────────────────────────┘
+
+ ┌─ AO ENVIAR ────────────────────────────────────────────────────┐
+ │                                                                │
+ │   avalia as regras  ·  monta o payload                         │
+ │   POST /composite ──────────────────────────▶  Caso + filhos   │
+ │   ◀───────── Caso criado                       (allOrNone)     │
+ │                                                                │
+ └────────────────────────────────────────────────────────────────┘
+```
+
+🟡 **INSERIR PRINT — `inspetor-chamadas.png`**
+*Legenda sugerida: as chamadas efetivamente feitas, com verbo, rota e retorno — capturadas na prova de conceito.*
+
+## 1. Ao abrir — catálogo e Record Types
+
+Uma requisição, duas consultas.
+
+**`POST /services/data/v66.0/composite`**
 
 ```jsonc
 {
-  "source": "FORM_SPEC",
-  "object": "Case",
-  "recordType":     { "id": "...", "developerName": "...", "label": "..." },
-  "formDefinition": { "id": "...", "label": "...", "channel": "ONLINE", "description": "..." },
-
-  "sections": [{
-    "id": "...",
-    "label": "Dados do parceiro",
-    "visibility": { "logic": "ALL", "expression": null, "conditions": [ /* Condition */ ] },
-    "repeating": false,
-    "fields": [ /* Item — ver abaixo */ ]
-  }],
-
-  "attachments":   { "required": true, "minimumCount": 3, "documents": [{ "code", "label" }] },
-  "backendFields": { "RecordTypeId": "012...", "Type": "BankDataChange" },
-  "diagnostics":   { "calls": [ /* … */ ], "warnings": [ /* … */ ] }
+  "allOrNone": false,
+  "compositeRequest": [
+    {
+      "method": "GET",
+      "referenceId": "catalogo",
+      "url": "/services/data/v66.0/query?q=SELECT+Id,+Name,+PublicLabel__c,+Description__c,+ObjectApiName__c,+TargetRecordTypeDevName__c,+CaseType__c,+Channel__c+FROM+SI_FormSpec__c+WHERE+RecordType.DeveloperName+%3D+'Form'+AND+IsActive__c+%3D+true+ORDER+BY+Name"
+    },
+    {
+      "method": "GET",
+      "referenceId": "recordTypes",
+      "url": "/services/data/v66.0/query?q=SELECT+Id,+DeveloperName,+Name+FROM+RecordType+WHERE+SobjectType+%3D+'Case'+AND+IsActive+%3D+true"
+    }
+  ]
 }
 ```
 
-### `Item` — o elemento de `sections[].fields[]`
+**Por que os Record Types vêm aqui, e não depois.** A chamada de picklists exige o **Id** do Record Type na URL. Se ele só for descoberto junto com a especificação, as duas chamadas do próximo passo ficam obrigatoriamente sequenciais. Resolvendo o Id na abertura, elas rodam **em paralelo**.
 
-`fields[]` é **heterogêneo**. O discriminador é `kind`; item sem `kind` é campo, por compatibilidade.
+Duas alternativas foram consideradas:
 
-**`kind: "field"`**
+| Alternativa | Avaliação |
+| :---- | :---- |
+| Gravar o Id do Record Type como texto na tabela, no momento em que operação escolhe | **Não recomendado.** Id de Record Type muda entre orgs; o registro é dado e é migrado entre ambientes, então o Id chegaria morto em produção. É exatamente o problema que `DeveloperName` evita |
+| Trazer os Record Types na abertura e resolver o nome localmente | **Recomendado.** Custa uma consulta a mais numa chamada que já existe, e o resultado serve a todos os formulários da sessão |
 
-| Campo | Tipo | Descrição |
-| :---- | :---- | :---- |
-| `apiName` | `string` | API name no SObject. Dentro de uma lista, no objeto **filho**. |
-| `label` | `string` | Rótulo do schema, salvo sobrescrita explícita. |
-| `dataType` | `DataType` | Normalizado para o vocabulário do `object-info`: `String`, `Picklist`, `Date`, `Email`, `Phone`, `Currency`, `Boolean`, … |
-| `required` | `boolean` | Obrigatoriedade **deste formulário**, ou do objeto. O formulário vence. |
-| `readOnly` | `boolean` | Da especificação, ou herdado de `IsCreatable = false`. |
-| `helpText` | `string \| null` | Texto de ajuda do campo, salvo sobrescrita. |
-| `maxLength` | `number \| null` | Tamanho do campo. |
-| `options` | `Option[] \| null` | Valores de picklist válidos no Record Type. `null` quando não é picklist. |
-| `controllerField` | `string \| null` | API name do campo que controla esta picklist dependente. |
-| `controllerValues` | `object \| null` | Valor do controlador → índice usado em `Option.validFor`. |
-| `width` | `'FULL' \| 'HALF' \| 'THIRD'` | Largura na linha. |
-| `hidden` | `boolean` | Não é renderizado, mas vai no payload com o `defaultValue`. |
-| `defaultValue` | `string \| null` | Valor inicial. Em campo oculto, **vence** o que vier do cliente. |
-| `placeholder` | `string \| null` | Texto do campo vazio. |
-| `visibility` | `Grupo \| null` | Regras `SHOW`. |
-| `requiredWhen` | `Grupo \| null` | Regras `REQUIRE`. |
-| `validation` | `Validation \| null` | Regras `BLOCK`. |
+O custo é o volume de Record Types do objeto — em um `Case` com ~90 Record Types ativos, cerca de 20 KB, uma vez por sessão.
 
-**`kind: "attachment"`** — `code`, `required`, `minFiles`, `maxFiles`, `maxSizeMb`, `acceptedTypes[]`, mais `visibility`, `requiredWhen` e `validation` como qualquer outro item.
+## 2. Ao escolher — a definição do formulário
 
-**`kind: "content"`** — `apiName` sintético (`__content_{id}`), `label` (nome interno, para a operação) e `html`.
+**`POST /services/data/v66.0/composite`**
 
-### `Option`
+```jsonc
+{
+  "allOrNone": false,
+  "compositeRequest": [
+    { "method": "GET", "referenceId": "especificacao", "url": "/services/data/v66.0/query?q=SELECT+…+FROM+SI_FormSpec__c+WHERE+(Id+%3D+'{formId}'+OR+Form__c+%3D+'{formId}')+AND+IsActive__c+%3D+true+ORDER+BY+Sort__c+NULLS+FIRST,+Name" },
+    { "method": "GET", "referenceId": "dependentes",   "url": "/services/data/v66.0/query?q=SELECT+DurableId,+QualifiedApiName,+ControllingFieldDefinitionId+FROM+FieldDefinition+WHERE+EntityDefinition.QualifiedApiName+%3D+'Case'+AND+ControllingFieldDefinitionId+!%3D+null" },
+    { "method": "GET", "referenceId": "schema",        "url": "/services/data/v66.0/query?q=SELECT+QualifiedApiName,+Label,+DataType,+Length,+InlineHelpText,+IsNillable,+IsCreatable,+IsDependentPicklist,+DurableId+FROM+EntityParticle+WHERE+EntityDefinition.QualifiedApiName+%3D+'Case'+AND+IsCreatable+%3D+true" }
+  ]
+}
+```
 
-| Campo | Tipo | Descrição |
-| :---- | :---- | :---- |
-| `value` | `string` | O valor gravado. |
-| `label` | `string` | O texto exibido. |
-| `validFor` | `number[]` | Índices dos valores do controlador para os quais esta opção é válida. Vazio quando o campo não é dependente. |
+**`especificacao`** traz a árvore inteira — todas as linhas do formulário, de todos os Record Types, na ordem.
 
-### `Grupo` — a forma de `visibility` e `requiredWhen`
+**`schema`** substitui `ui-api/object-info`, que devolve todos os campos com 36 atributos cada e não aceita filtro. `EntityParticle` é SOQL comum: escolhe as colunas, e por ser SOQL cabe em composite. Num objeto `Case` com ~400 campos criáveis, a diferença medida foi de ~380 KB para ~160 KB.
 
-| Campo | Tipo | Descrição |
-| :---- | :---- | :---- |
-| `logic` | `'ALL' \| 'ANY' \| 'CUSTOM'` | Como as condições se combinam. `CUSTOM` só existe em `visibility`. |
-| `expression` | `string \| null` | A expressão do modo `CUSTOM`: `"1 AND (2 OR 3)"`. Os números são a ordem das condições. |
-| `conditions` | `Condition[]` | Os filtros, na ordem que a expressão numera. |
+**`dependentes`** existe por uma lacuna: nem `EntityParticle` nem `picklist-values` entregam o **nome** do campo que controla uma picklist dependente. O primeiro só marca `IsDependentPicklist`; o segundo devolve `controllerValues` sem nomear quem controla. `FieldDefinition.ControllingFieldDefinitionId` aponta para o `DurableId` de outro campo — que `schema` já traz. Custo: menos de 1 KB.
 
-### `Condition`
+### Forma do retorno de `/composite` com `/query`
 
-| Campo | Tipo | Descrição |
-| :---- | :---- | :---- |
-| `field` | `string` | API name do campo **observado**. Não precisa estar no formulário. |
-| `operator` | `Operator` | `EQUALS`, `NOT_EQUALS`, `CONTAINS`, `NOT_CONTAINS`, `STARTS_WITH`, `GREATER_THAN`, `LESS_THAN`, `IS_NULL`, `IS_NOT_NULL`. |
-| `value` | `string` | O outro lado da comparação. |
-| `valueSource` | `'LITERAL' \| 'FIELD' \| 'TOKEN'` | Como interpretar `value`. |
+Todas as consultas SOQL desta RFC devolvem a mesma forma. Um exemplo real, abreviado:
 
-### `Validation`
+```jsonc
+{
+  "compositeResponse": [
+    {
+      "referenceId": "especificacao",
+      "httpStatusCode": 200,
+      "httpHeaders": {},
+      "body": {
+        "totalSize": 38,
+        "done": true,
+        "records": [
+          {
+            "attributes": {
+              "type": "SI_FormSpec__c",
+              "url": "/services/data/v66.0/sobjects/SI_FormSpec__c/a0x…"
+            },
+            "Id": "a0x…",
+            "Name": "Papel",
+            "RecordType": { "attributes": { … }, "DeveloperName": "Field" },
+            "Parent__c": "a0x…",
+            "Sort__c": 1,
+            "FieldApiName__c": "Type__c",
+            "IsRequired__c": false,
+            "Width__c": "FULL"
+          }
+          // … demais linhas
+        ]
+      }
+    }
+    // … demais referenceIds
+  ]
+}
+```
 
-`Grupo` sem `CUSTOM`, mais `message: string`. A condição descreve o **inválido**.
+Três pontos de atenção para quem consumir:
 
-### `Section` quando `repeating: true`
-
-Acrescenta `childObject`, `childRelationshipField`, `itemLabel`, `addButtonText`, `minItems` e `maxItems`. Os campos de uma lista endereçam o objeto **filho**, não o Caso.
-
-### Notas de implementação para quem consumir
-
-* `attachments` é um **agregado para validação**, não a lista de renderização. Os itens já estão posicionados dentro das seções, na ordem que a operação definiu.
-* Seção oculta esconde tudo dentro dela, **inclusive os obrigatórios** — que deixam de bloquear o envio. Sem isso, um campo obrigatório numa seção escondida travaria um preenchimento válido.
-* `expression` do modo `CUSTOM` **não deve ser avaliada como código**. Ela vem de um registro editado por operação; executá-la seria injeção. Na POC é interpretada por um parser dedicado.
-
-## As chamadas
-
-Medidas na scratch org, pelo usuário de integração, com o objeto `Case` em 397 campos criáveis.
-
-### Ao abrir a aplicação — uma vez por sessão
-
-| # | Método | Recurso | Peso | Tempo |
-| :---- | :---- | :---- | ----: | ----: |
-| — | GET | `/query` — o catálogo: `SI_FormSpec__c` com Record Type `Form` | 0,3 KB | ~100 ms |
-
-O catálogo devolve, para cada formulário, o objeto, o **`DeveloperName` do Record Type de destino**, o `Type` do Caso e o canal. Esse `DeveloperName` é o que permite montar o formulário em duas chamadas em vez de três — ver abaixo.
-
-### Ao escolher um formulário — a cada troca no seletor
-
-| # | Método | Recurso | Peso | Tempo |
-| :---- | :---- | :---- | ----: | ----: |
-| 01 | POST | `/composite` — quatro subrequisições | 209,4 KB | 298 ms |
-| 02 | GET | `/ui-api/object-info/Case/picklist-values/{recordTypeId}` | 260,4 KB | 1.212 ms |
-
-As quatro subrequisições da chamada 01, nesta ordem:
-
-1. `SI_FormSpec__c` — a especificação inteira, `WHERE (Id = :formId OR Form__c = :formId)`. 38 linhas, 48,7 KB.
-2. `RecordType` — `DeveloperName` → Id. 0,3 KB.
-3. `FieldDefinition` — picklists dependentes e o campo que controla cada uma. 0,3 KB.
-4. `EntityParticle` — o schema dos campos: rótulo, tipo, tamanho, texto de ajuda, obrigatoriedade no objeto, FLS do usuário corrente. 159,9 KB.
-
-**A subrequisição 2 só cabe aqui porque o `DeveloperName` chega pronto do cliente.** Ele saiu do catálogo, que a tela já leu para montar o seletor. Sem ele, a consulta dependeria do retorno da subrequisição 1, e as subrequisições de um composite são independentes — era isso que obrigava a uma terceira chamada.
-
-O valor recebido é tratado como **palpite, não verdade**: o servidor compara com o `TargetRecordTypeDevName__c` da especificação e descarta se divergir, resolvendo numa consulta própria e registrando aviso. Não é zelo teórico — `RecordTypeId` é campo de back-end, injetado pelo servidor justamente para o formulário não escolher em que Record Type o Caso nasce; aceitar o da query string devolveria essa escolha a quem edita a URL. A mesma divergência acontece sem má-fé, quando o admin troca o Record Type e o cliente está com catálogo velho em cache. Há também guarda de formato (`^[A-Za-z0-9_]{1,80}$`), porque o valor é interpolado num SOQL.
-
-A subrequisição 4 substitui `ui-api/object-info`, que devolve todos os campos com 36 atributos cada — 377,5 KB nesta org — e não aceita filtro. `EntityParticle` é SOQL comum: escolhe as colunas, e por ser SOQL cabe em composite.
-
-A subrequisição 3 existe por uma lacuna: nem `EntityParticle` nem `picklist-values` entregam o **nome** do campo controlador. O primeiro só marca `IsDependentPicklist`; o segundo devolve `controllerValues` sem nomear quem controla. `FieldDefinition.ControllingFieldDefinitionId` aponta para o `DurableId` de outro campo — que a subrequisição 4 já traz. Custo: 0,3 KB.
-
-A chamada 02 é a única que permanece na UI API. É a única fonte que respeita Record Type e devolve as dependências — `describe`, `FieldDefinition`, `EntityParticle` e `PicklistValueInfo` foram testados e nenhum atende. E é a única que **não** pode entrar no composite: o endpoint recusa recursos de `ui-api` com `INVALID_BATCH_REQUEST`.
+* O `referenceId` volta na resposta. **Mapeie por nome, não por posição** — assim uma subrequisição a mais no meio não desalinha nada.
+* `httpStatusCode` é **por subrequisição**. Com `allOrNone: false`, uma que falha falha sozinha e as outras continuam válidas.
+* **`done: false` é resultado errado, não parcial** — ver abaixo.
 
 ### `/composite`, e não `/composite/batch`
 
-A escolha é medida, não estilística. O `/composite/batch` devolve query **cortada** — `done: false` com uma fração dos registros — junto de um status **200**. Mesmas quatro consultas, mesma ordem:
+A escolha é medida, não estilística. O `/composite/batch` devolve query **cortada** — `done: false` com uma fração dos registros — junto de um status **200**. Mesmas consultas, mesma ordem:
 
 | endpoint | especificação | schema | tempo |
 | :---- | :---- | :---- | ----: |
 | `/composite/batch` | **1 de 38** | 397 de 397 | 499 ms |
 | `/composite` | 38 de 38 | 397 de 397 | 298 ms |
 
-Trinta e oito registros não chegam perto do limite de 2.000 do SOQL: o corte não vem do tamanho da consulta, vem do batch reduzindo o lote depois de já ter processado o schema. Outras combinações confirmam que não é teto de tamanho de resposta — `[spec, schema, schema]` passa inteiro com 369 KB, e `[schema, spec]` corta com 162 KB.
+Trinta e oito registros não chegam perto do limite de 2.000 do SOQL: o corte não vem do tamanho da consulta, vem do batch reduzindo o lote depois de já ter processado uma consulta grande. O sintoma seria um formulário sem seção nenhuma, sem erro.
 
-O sintoma seria um formulário sem seção nenhuma, sem erro. O BFF confere `done` em toda subrequisição e refaz fora do lote o que voltar cortado, registrando a viagem extra no diagnóstico — o `/composite` não cortou em nenhum caso testado, mas conferir custa uma comparação e não conferir custa uma falha invisível.
+**Recomendação:** usar `/composite`, e ainda assim conferir `done` em toda subrequisição, refazendo fora do lote o que voltar cortado. Conferir custa uma comparação; não conferir custa uma falha invisível.
 
-`allOrNone: false` nas leituras: nesse modo, a subrequisição que falha falha sozinha, como no batch. Com `true`, uma falha derruba as demais com `PROCESSING_HALTED` — inaceitável aqui, porque objetos opcionais podem não existir na org.
+`allOrNone: false` nas leituras. Com `true`, uma falha derruba as demais com `PROCESSING_HALTED`.
 
-### Total
+## 3. Ao escolher — valores de picklist
 
-**2 chamadas, 470 KB, ~1,5 s** para montar um formulário, mais 0,3 KB do catálogo uma vez por sessão. Oitenta e nove por cento do peso é metadado do objeto (159,9 KB de schema e 260,4 KB de picklists). A definição do formulário custa 48,7 KB; Record Type e dependências somam 0,6 KB. O peso não está no formulário — está no objeto `Case`.
+**`GET /services/data/v66.0/ui-api/object-info/Case/picklist-values/{recordTypeId}`**
 
-### Ao enviar
+É a única chamada que permanece na UI API, e a única que **não** entra em composite — o endpoint recusa recursos de `ui-api` com `INVALID_BATCH_REQUEST`.
 
-`POST /composite`, com `allOrNone: true`:
+Ela permanece porque é a única fonte que respeita Record Type e devolve as dependências. `describe`, `FieldDefinition`, `EntityParticle` e `PicklistValueInfo` foram testados e nenhum atende.
+
+### Forma do retorno
+
+```jsonc
+{
+  "picklistFieldValues": {
+    "SI_BankType__c": {
+      "controllerValues": {},
+      "defaultValue": null,
+      "eTag": "7b015839ce7f6b65d372e638075808c9",
+      "url": "/services/data/v66.0/ui-api/object-info/Case/picklist-values/{rtId}/SI_BankType__c",
+      "values": [
+        { "attributes": null, "label": "Banco Digital", "validFor": [], "value": "BancoDigital" },
+        { "attributes": null, "label": "Banco Físico",  "validFor": [], "value": "BancoFisico"  }
+      ]
+    },
+
+    "CollectionAddress__StateCode__s": {
+      "controllerValues": { "BR": 30, "US": 233, "…": 0 },
+      "values": [
+        { "label": "São Paulo", "value": "SP", "validFor": [30] },
+        { "label": "Texas",     "value": "TX", "validFor": [233] }
+      ]
+    }
+  },
+  "eTag": "…"
+}
+```
+
+**Como ler uma picklist dependente:** `controllerValues` mapeia *valor do campo controlador* → *índice*. Cada opção traz `validFor` com os índices em que ela é válida. Para filtrar, pegue o índice do valor escolhido no controlador e mantenha só as opções cujo `validFor` o contém.
+
+**Qual é o campo controlador** não vem daqui — vem da subrequisição `dependentes` do passo 2.
+
+`values` vazio para um campo significa que ele não tem valor válido naquele Record Type.
+
+### Otimização conhecida, não aplicada
+
+O mesmo endpoint aceita um campo no fim da URL:
+
+```
+GET /ui-api/object-info/Case/picklist-values/{rtId}/SI_BankType__c
+```
+
+O retorno completo do Record Type pode passar de 250 KB, enquanto por campo fica na casa de 1 KB. Para um formulário com ~12 picklists, são ~12 KB em requisições concorrentes contra 250 KB numa só. Vale avaliar; não foi aplicado na prova de conceito.
+
+## 4. Ao enviar
+
+**`POST /services/data/v66.0/composite`**, com `allOrNone: true`.
+
+O Caso ainda não existe quando o cliente preenche, então os itens de lista não têm o Id do pai para gravar. O composite resolve dentro da própria transação: o `referenceId` da primeira subrequisição vira `@{refPai.id}` nas seguintes.
 
 ```jsonc
 {
   "allOrNone": true,
   "compositeRequest": [
-    { "referenceId": "refPai", "method": "POST", "url": "/sobjects/Case",
-      "body": { "RecordTypeId": "012…", "Type": "BankDataChange", "SI_FullName__c": "…" } },
-
-    { "referenceId": "item1",  "method": "POST", "url": "/sobjects/CaseMember__c",
-      "body": { "Name": "…", "Type__c": "Landlord", "Case__c": "@{refPai.id}" } },
-
-    { "referenceId": "registroCriado", "method": "GET",
-      "url": "/sobjects/Case/@{refPai.id}?fields=Id,CaseNumber,Status,CreatedDate" }
+    {
+      "referenceId": "refPai",
+      "method": "POST",
+      "url": "/services/data/v66.0/sobjects/Case",
+      "body": {
+        "RecordTypeId": "012…",
+        "Type": "BankDataChange",
+        "SI_RequesterType__c": "Proprietario",
+        "SI_BankBranch__c": "0001"
+      }
+    },
+    {
+      "referenceId": "item1",
+      "method": "POST",
+      "url": "/services/data/v66.0/sobjects/CaseMember__c",
+      "body": { "Name": "João Souza", "Case__c": "@{refPai.id}" }
+    },
+    {
+      "referenceId": "registroCriado",
+      "method": "GET",
+      "url": "/services/data/v66.0/sobjects/Case/@{refPai.id}?fields=Id,CaseNumber,Status"
+    }
   ]
 }
 ```
 
-O Caso ainda não existe quando o cliente preenche, então os itens não têm o Id do pai para gravar. O `referenceId` da primeira subrequisição vira `@{refPai.id}` nas seguintes, resolvido dentro da própria transação.
+`allOrNone: true` **aqui**, ao contrário das leituras: um Caso sem os registros filhos que o justificam é pior que erro nenhum — a pessoa reenviaria e criaria um Caso duplicado.
 
-`allOrNone` porque um Caso sem os registros que o justificam é pior que erro nenhum: a pessoa reenviaria e criaria um Caso duplicado, e a operação receberia dois pedidos para a mesma coisa, um deles silenciosamente incompleto.
+**Ao ler o erro, procure a falha raiz.** Quando o pai falha, os filhos reportam `Could not find the referenced operation`; quando um filho falha, o pai reporta `PROCESSING_HALTED`. Nos dois casos, a mensagem que interessa é a única que **não** é uma dessas duas.
 
-**Nota de diagnóstico.** Quando o pai falha, cada filho reporta *"Could not find the referenced operation refPai"*. Quando um filho falha, o pai reporta `PROCESSING_HALTED`. Os dois são sintoma; o consumidor precisa localizar a subrequisição cujo erro não é nenhum desses e reportar essa.
+🟡 **INSERIR PRINT — `inspetor-payload.png`**
+*Legenda sugerida: o payload montado antes do envio — os campos injetados pelo back-end, o campo oculto, e o filho referenciando `@{refPai.id}`.*
 
-## Campos gravados pelo back-end
+## Campos gravados sem passar pelo formulário
 
-`RecordTypeId` e `Type` são injetados pelo BFF a partir do catálogo, depois de montar o registro. Não são renderizados nem aceitos do cliente: quem escolheu o formulário já escolheu o Record Type e o Type do Caso, e perguntar de novo abriria espaço para o dado divergir do catálogo.
+Dois campos são gravados pelo consumidor e **nunca** aceitos do cliente:
 
-O mesmo princípio vale para campos com `hidden: true`: o `defaultValue` da definição vence o que vier do cliente. É assim que `Type__c` e `MemberSource__c` entram em cada item de lista sem aparecer na tela.
+| Campo | Origem |
+| :---- | :---- |
+| `RecordTypeId` | resolvido a partir de `TargetRecordTypeDevName__c` da raiz |
+| `Type` | `CaseType__c` da raiz |
 
-## Avaliação de regras nos dois lados
+Isso não é detalhe de implementação: se o Record Type vier do cliente, quem editar a requisição escolhe em que Record Type o Caso nasce — e com ele o roteamento, o layout e as regras de atendimento.
 
-A mesma função avalia visibilidade, obrigatoriedade condicional e validação **no navegador e no servidor** — no primeiro a cada digitação, no segundo ao montar o payload. É o que garante que a tela e o envio não discordem sobre o que está oculto ou inválido.
+Se a implementação otimizar recebendo o Record Type já resolvido (como o passo 1 permite), **o valor recebido deve ser tratado como palpite**: comparar com `TargetRecordTypeDevName__c` da especificação e descartar se divergir. A divergência também acontece sem má-fé — basta o catálogo estar velho em cache depois de operação trocar o Record Type do formulário.
 
-Isso **não** é enforcement: veja Risks.
+## Proposta de modelo para contrato
+
+> Esta seção é **proposta, não especificação.** O formato entregue ao front é decisão de quem constrói o BFF. Está aqui porque a prova de conceito precisou de um, e o formato abaixo cobriu os 53 formulários do corpus — serve de ponto de partida, não de requisito.
+
+A ideia é que os canais conheçam apenas esta forma, e a fonte da definição no Salesforce seja detalhe de implementação:
+
+```jsonc
+{
+  "object": "Case",
+  "recordType": { "id": "012…", "developerName": "…", "label": "…" },
+  "sections": [
+    {
+      "id": "a0x…",
+      "label": "Identificação",
+      "repeating": false,
+      "visibility": { "logic": "ALL", "expression": null, "conditions": [] },
+      "fields": [
+        {
+          "kind": "field",              // field | attachment | content
+          "apiName": "SI_BankBranch__c",
+          "label": "Agência",
+          "dataType": "String",
+          "required": true,
+          "readOnly": false,
+          "hidden": false,
+          "defaultValue": null,
+          "helpText": null,
+          "maxLength": 10,
+          "width": "FULL",              // FULL | HALF | THIRD
+          "options": null,              // preenchido em picklists
+          "controllerField": null,      // picklist dependente
+          "visibility":   null,
+          "requiredWhen": null,
+          "validation":   null          // { message, logic, conditions }
+        }
+      ]
+    }
+  ],
+  "attachments": { "required": true, "minimumCount": 2, "documents": [] },
+  "backendFields": { "RecordTypeId": "012…", "Type": "BankDataChange" },
+  "diagnostics": { "calls": [], "warnings": [] }
+}
+```
+
+Uma seção com `repeating: true` carrega `childObject` e `childRelationshipField`; cada item vira um registro filho.
+
+Três características que valem preservar em qualquer formato escolhido:
+
+* **Um só vocabulário de condição** para visibilidade, obrigatoriedade e validação. As três são a mesma máquina com destinos diferentes; separá-las multiplica o código do avaliador por três.
+* **`backendFields` explícito e separado dos campos do formulário**, para que a fronteira entre "o que o cliente preencheu" e "o que o servidor decidiu" seja visível no próprio dado.
+* **`diagnostics.warnings`**, para que definição malformada — lista sem objeto filho, validação sem mensagem — apareça em vez de sumir.
+
+### Onde avaliar as regras
+
+O avaliador precisa rodar em **dois momentos**: ao desenhar a tela e ao montar o envio. A recomendação é que seja **o mesmo código**, chamado nos dois — se forem implementações distintas, elas divergem, e a divergência aparece como campo exigido que o usuário não consegue ver.
+
+A validação de cliente **não substitui** enforcement no servidor. Nada impede uma requisição direta à API que ignore toda regra da definição — o que a definição descreve é a experiência, não a integridade do dado. Enforcement no lado Salesforce continua em aberto, e está em Risks.
+
+**Cuidado com expressões `CUSTOM`.** `FilterLogic__c` é texto editado por operação. Interpretá-lo com `eval` — ou equivalente — é execução de código vindo de um registro. Use um parser próprio.
+
+---
 
 # Timeline
 
-@preencher
+| Etapa | Entrega |
+| :---- | :---- |
+| 1 | Objeto de definição, configurador e um formulário piloto migrado |
+| 2 | Leitura pelas APIs e renderização em um canal |
+| 3 | Migração dos demais formulários, por lote |
 
 # Dependencies
 
-* **Salesforce Platform**
-  * Objeto `SI_FormSpec__c` com os sete Record Types, e o configurador (LWC) que o edita.
-  * Objeto de destino dos itens de lista. Hoje `CaseMember__c`; ver Risks.
-  * External Client App com Client Credentials Flow habilitado e um usuário "Run As" definido.
-* **BFF**
-  * Componente novo, a ser hospedado. A POC roda em Node com Express, sem SDK do Salesforce.
-* **Permissões**
-  * Permission set para o usuário de integração, com FLS de leitura em `SI_FormSpec__c` e de criação nos campos que os formulários preenchem. FLS ausente faz a REST reportar `No such column` — o erro não indica permissão, e é fácil concluir que o campo não existe.
-* **Operação**
-  * Titularidade do catálogo: quem cria, revisa e desativa formulário.
+* **Salesforce Platform** — objeto customizado `SI_FormSpec__c`, o configurador LWC, e os campos de destino no `Case`.
+* **External Client App** com OAuth 2.0 Client Credentials, para o consumidor autenticar como aplicação. A chave e o segredo são gerados **por org** e não vêm no metadata: cada ambiente tem o seu par, e o usuário "Run As" precisa ser definido manualmente em Setup.
+* **Permission set** com FLS de leitura sobre `SI_FormSpec__c` e sobre todo campo usado por algum formulário. Administrador **não** recebe FLS automático em campo customizado implantado por metadata, e a API REST reporta campo sem FLS como `No such column` — o erro parece de campo inexistente.
+* **Objetos de destino dos itens de lista** (ex.: `CaseMember__c`), com o campo de vínculo ao Caso.
 
 # Alternatives Considered & Prior Art
 
-Quatro fontes de definição foram implementadas e comparadas na mesma tela, produzindo o mesmo contrato. Três foram descartadas.
+Quatro fontes de definição foram implementadas e comparadas.
 
-**Page Layout, via UI API.** O layout já traz seções, ordem e obrigatoriedade por formulário, de graça, e o admin edita em Setup. Descartada por dois limites que não têm contorno: o Page Layout **não modela condição nem anexo**, e o retorno da UI API não é extensível — as duas capacidades exigiram objetos de apoio (`FormFieldRule__c`, `FormRequiredDocument__c`), o que anula a vantagem de "não construir nada". Além disso, o layout amarra a identidade do formulário ao Record Type: dois canais com o mesmo formulário exigiriam dois Record Types.
+| Fonte | Estrutura vem de | Por que não foi escolhida |
+| :---- | :---- | :---- |
+| **Page Layout** (UI API) | `ui-api/layout` | O layout não modela condição nem anexo. Exigiu dois objetos de apoio, e o layout devolvido depende do *profile* do usuário autenticado — o formulário sai diferente sem nada acusar |
+| **`record-defaults/create`** | UI API | Devolve o objeto inteiro para montar um formulário de 15 campos. Mais dado, menos controle |
+| **Screen Flow** | Tooling API | Visibilidade e anexo nativos, mas **não** aceita obrigatoriedade em campo vinculado ao objeto: `isRequired` e `validationRule` são recusados em `ObjectProvided`, e o componente que os aceita não vincula a campo nenhum. Verificado em 20 flows ativos: zero `InputField` com `objectFieldReference`, em 57 encontrados. Além disso, ler Flow pela Tooling exige três permissões de Setup, e com elas o usuário de integração passa a enxergar todos os flows da org |
+| **Objeto customizado** | `SI_FormSpec__c` | **A proposta.** Nada é nativo — tudo foi construído — mas nada esbarra em limite de estrutura alheia |
 
-**Screen Flow, via Tooling API.** Traz visibilidade condicional e componente de anexo nativos, e o admin edita no Flow Builder. Descartada por três razões: (a) o Flow **não declara Record Type** em lugar nenhum do metadado, então as picklists não têm como ser resolvidas sem um catálogo à parte; (b) **não aceita obrigatoriedade por formulário** — um campo vinculado ao objeto (`ObjectProvided`) recusa `isRequired` e `validationRule` no deploy, e o componente que aceita não vincula a campo nenhum; (c) ler Flow pela Tooling exige `ViewSetup`, `ViewRoles` e `ViewAllNonSetupFlows`, o que faz o usuário de integração enxergar todos os flows da org.
-
-**`record-defaults/create`, via UI API.** Faz menos chamadas, mas devolve o objeto inteiro — 652 campos — para um formulário de 15. Gasta mais para entregar menos estrutura.
-
-**Dynamic Forms / FlexiPage.** Investigada e eliminada antes de virar implementação: não existe API que resolva qual FlexiPage está efetivamente associada a uma ação. A associação só existe dentro de `CustomApplication.Metadata`, e 692 objetos da Tooling foram varridos sem encontrar um de action override.
-
-**Manter o Cognito.** É a alternativa de menor esforço imediato e continua sendo uma opção defensável para formulários simples. Foi descartada como estratégia porque não resolve o problema central — a definição segue fora do sistema de registro, e o dado segue chegando desestruturado.
+O que decidiu foi o item da obrigatoriedade condicional: é requisito do corpus, e é o único ponto sem contorno no Screen Flow.
 
 # Operations
 
-A mudança operacional é a criação e manutenção de formulários passar para dentro do Salesforce.
+A mudança operacional é que **operação passa a manter formulários dentro do Salesforce**, no configurador, sem abrir demanda para engenharia.
 
-Um formulário novo é criado no **SI Form Builder**, uma LWC na org. A ferramenta traz uma paleta com Seção, Lista, Anexo e Texto, e a lista de campos do objeto, filtrável. Arrastar um campo para dentro de uma seção cria o componente; o painel de propriedades expõe as sobrescritas, a largura, o valor padrão e os três grupos de filtro. As condições aparecem sob o componente que elas afetam.
+Um formulário novo com campos que já existem é trabalho de operação, do começo ao fim. Campo novo no `Case` continua sendo metadado e exige deploy — e é o único caso que atravessa a fronteira.
 
-**Nada disso passa por deploy.** São registros. Um formulário novo, ou uma pergunta a mais num formulário existente, é uma edição de dado — não entra em janela de release e não depende de engenharia.
-
-Duas exceções, que a operação precisa conhecer:
-
-* Uma pergunta que grava num campo **que ainda não existe** exige criar o campo, e isso é metadado — passa por deploy e por FLS.
-* Um formulário que cria registros filhos exige que o objeto filho e o campo de vínculo existam.
-
-Sugere-se que o catálogo tenha titularidade explícita, com revisão antes de ativar (`IsActive__c`), pelo mesmo motivo que o Cognito tem hoje: formulário é interface com cliente.
+Formulário publicado é o que tem `IsActive__c = true` na raiz. Não há versionamento: editar um formulário ativo muda o que o próximo cliente vê. Se controle de versão for requisito, é desenho adicional.
 
 # Observability
 
-**Chamadas ao Salesforce.** O BFF registra cada chamada — recurso, verbo, peso e tempo — e devolve a lista em `diagnostics.calls` do próprio contrato. Na POC isso alimenta um painel de inspeção; em produção deve alimentar métrica de latência e volume por recurso. As duas chamadas de schema são as candidatas naturais a alarme de latência, por serem 90% do peso.
-
-**Avisos de tradução.** `diagnostics.warnings` acumula os problemas que não impedem servir o formulário mas indicam definição malformada: Record Type inexistente, lista sem campo de vínculo, validação sem mensagem, lógica `CUSTOM` sem expressão. Estes avisos devem ser coletados e revisados — cada um é um formulário servindo menos do que a operação configurou, sem erro visível.
-
-**Envio.** Taxa de sucesso do `composite`, e os `errorCode` de falha agrupados. A falha raiz precisa ser extraída antes de agregar; agrupar por `PROCESSING_HALTED` não distingue causas.
-
-**Formulários sem uso.** Um formulário ativo no catálogo que não recebe envio há muito tempo é candidato a desativação, e a métrica é trivial: envios por `formDefinition.id`.
+* **Definição malformada** — lista sem objeto filho, validação sem mensagem, Record Type inexistente, campo sem FLS. Devem virar aviso estruturado no retorno do consumidor, e não falha silenciosa.
+* **Formulário que não monta** — taxa de erro por formulário, para distinguir problema de definição de problema de integração.
+* **Envio rejeitado por validação** — quais regras mais barram, e em quais formulários. É sinal de formulário mal desenhado, não de erro técnico.
+* **Peso e latência das chamadas de leitura**, com atenção à chamada de picklists, que é a maior do fluxo.
 
 # Security & Privacy & Compliance
 
-**Dado pessoal.** Os formulários coletam nome, CPF, e-mail, telefone, dados bancários e documentos com foto. É dado pessoal sensível, e o volume não é pequeno. O ganho de privacidade da proposta é real: o dado deixa de residir e trafegar por uma ferramenta de terceiro e passa a nascer dentro da org, sob os mesmos controles do resto do Caso.
+Os formulários coletam **dado pessoal de cliente final** — nome, documento, dados bancários e, em vários casos, documento com foto. A mudança traz esse dado para dentro do perímetro do Salesforce, o que é um ganho em relação ao arranjo atual.
 
-**Superfície de permissão do usuário de integração.** O desenho exige apenas FLS de campo e leitura em `SI_FormSpec__c`. Nenhuma permissão de Setup — foi um dos critérios que eliminou a fonte Screen Flow, que exigia três.
+Pontos que precisam de decisão antes de produção:
 
-**Autenticação máquina a máquina.** O BFF autentica por Client Credentials Flow, sem usuário no meio. O usuário "Run As" do External Client App é quem define o FLS efetivo, e portanto quais campos os formulários conseguem ler e gravar.
-
-**Autenticação do cliente final.** Não resolvida. Ver Risks.
-
-**Campos não forjáveis.** `RecordTypeId` e `Type` são injetados pelo servidor a partir do catálogo, e campos ocultos usam o valor da definição em vez do que vier do cliente. O payload do cliente não pode alterar em que Record Type o Caso nasce.
-
-**Expressões de operação não são código.** A expressão do modo `CUSTOM` é interpretada por parser dedicado, nunca por `eval`. Ela vem de um registro editável por operação e roda também no servidor.
+* **Autenticação do cliente final.** Nada nesta RFC identifica quem preenche. Sem isso, quem tiver o link cria Caso em nome de terceiro.
+* **Superfície do usuário de integração.** Ele precisa de FLS de leitura sobre os campos usados e de criação sobre o objeto de destino — e de nada mais. Nenhuma permissão de Setup é necessária nesta proposta, diferente da alternativa por Screen Flow.
+* **Expressões `CUSTOM` são dado editável por operação.** Interpretá-las como código seria injeção com privilégio de servidor.
+* **Retenção de anexos.** Documento com foto entra na org e passa a seguir a política de retenção dela.
 
 # Risks
 
-* **Não há enforcement no lado Salesforce.** A obrigatoriedade por formulário, a validação customizada e os mínimos de lista são verificados no BFF. Nada impede uma integração — ou uma chamada direta à API — de criar um Caso ignorando tudo. É consequência direta do desenho: a regra pertence ao *formulário*, não ao objeto, e o objeto é compartilhado por todos os formulários. Mitigação possível: replicar as validações críticas em Validation Rules do objeto, ao custo de duplicar a regra em dois lugares.
-
-* **Upload de arquivo não está implementado.** Os anexos estão modelados, etiquetados por código de documento e, dentro de listas, por item — mas a POC não cria `ContentVersion` nem vincula o arquivo ao registro. É a maior lacuna entre o que está de pé e o que produção exige, e envolve decisão sobre tamanho, antivírus e retenção.
-
-* **Autenticação do cliente final não está resolvida.** Hoje qualquer um com o link vê qualquer formulário do catálogo. Antes de produção é preciso decidir como o link identifica a pessoa e o que ela pode abrir.
-
-* **O objeto de itens de lista está subespecificado.** `CaseMember__c` tem nome e identificador externo, mas não CPF próprio, telefone nem endereço — na POC o CPF foi para `ExternalId__c`, o que não é o uso pretendido do campo. E `Case__c` é lookup opcional sem cascata: apagar o Caso deixa órfãos. Decisão do dono do objeto, e ela precisa vir antes da primeira lista em produção.
-
-* **O catálogo é ponto único de configuração incorreta.** Uma linha `Form` com `TargetRecordTypeDevName__c` errado serve um formulário sem picklists, com aviso mas sem erro. O configurador reduz o risco ao oferecer seletores em vez de texto livre, mas edição direta de registro continua possível.
-
-* **A migração dos 53 formulários é trabalho real e não está estimada.** O levantamento mostra que o modelo cobre os componentes em uso, mas cobertura de modelo não é migração: cada formulário precisa dos campos de destino existindo no objeto, e vários não existem.
-
-* **Hospedagem de imagem em bloco de conteúdo indefinida.** O bloco aceita HTML, mas onde a imagem reside não foi decidido. `ContentAsset` com `isVisibleByExternalUsers` mantém tudo na org e evita CDN externo; a alternativa é hospedagem externa, com o custo de mais um lugar para manter.
+* **Enforcement só no cliente.** A definição descreve a experiência, não a integridade do dado: uma requisição direta à API ignora toda regra. Se a regra for de negócio e não de usabilidade, precisa existir também como Validation Rule ou trigger. Esta RFC não resolve isso.
+* **Sem versionamento de formulário.** Editar um formulário ativo muda o que o próximo cliente vê, sem trilha.
+* **A tabela é compartilhada e sem integridade referencial de papel.** Nada no objeto impede uma linha `Field` com `Body__c` preenchido ou uma `Rule` sem `Parent__c`. A validação vive no configurador; quem escrever registros por API ou Data Loader contorna. É o custo do desenho de tabela única, e a delimitação por Record Type nesta RFC é a mitigação.
+* **Anexos ainda não implementados de ponta a ponta.** A definição descreve o que é exigido; o upload real, o vínculo ao Caso e a validação de tamanho e tipo no servidor não foram construídos.
+* **Migração dos 53 formulários é trabalho manual.** Não existe importador do Cognito. O corpus está catalogado, mas cada formulário precisa ser remontado.
+* **Volume de Record Types no objeto.** A chamada de abertura traz todos os Record Types ativos do objeto. Em orgs com centenas, vale escopar por canal.
