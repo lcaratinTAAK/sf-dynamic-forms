@@ -227,8 +227,6 @@ export const getRecordDefaults = (objectApiName, recordTypeId) =>
  * respeita a visibilidade por profile: devolve todos os ativos do objeto.
  */
 export async function discoverViaSoql(objectApiName, rulesObject) {
-  const version = `v${config.apiVersion}`;
-
   const qRecordTypes =
     `SELECT Id, DeveloperName, Name FROM RecordType ` +
     `WHERE SobjectType = '${objectApiName}' AND IsActive = true ORDER BY Name`;
@@ -238,23 +236,18 @@ export async function discoverViaSoql(objectApiName, rulesObject) {
     `Operator__c, Value__c, Effect__c, LogicGroup__c FROM ${rulesObject} ` +
     `WHERE ObjectApiName__c = '${objectApiName}' AND IsActive__c = true`;
 
-  const corpo = {
-    batchRequests: [
-      { method: 'GET', url: `${version}/query?q=${encodeURIComponent(qRecordTypes)}` },
-      { method: 'GET', url: `${version}/query?q=${encodeURIComponent(qRegras)}` },
-    ],
-  };
-  const request = { method: 'POST', url: `${v()}/composite/batch`, body: corpo };
+  const { raw, request, refeitos, registros, falhou } = await batchDeQueries({
+    recordTypes: qRecordTypes,
+    regras: qRegras,
+  });
 
-  const resposta = await sfPost(request.url, corpo);
-
-  const [rt, regras] = resposta.results ?? [];
   return {
-    recordTypes: rt?.result?.records ?? [],
-    rules: regras?.statusCode === 200 ? regras.result?.records ?? [] : [],
-    rulesFailed: regras?.statusCode !== 200,
+    recordTypes: registros('recordTypes'),
+    rules: falhou('regras') ? [] : registros('regras'),
+    rulesFailed: falhou('regras'),
+    truncated: refeitos,
     request,
-    raw: resposta,
+    raw,
   };
 }
 
@@ -327,9 +320,6 @@ export const queryFlowDefinitions = () =>
  * quando a query dele é montada.
  */
 export async function discoverFormCatalog({ objectApiName, source = null, formId = null }) {
-  const version = `v${config.apiVersion}`;
-  const enc = encodeURIComponent;
-
   const qForms = queryFormDefinitions(objectApiName, source, formId);
   const qFlows = queryFlowDefinitions();
 
@@ -338,36 +328,37 @@ export async function discoverFormCatalog({ objectApiName, source = null, formId
     WHERE SobjectType = '${objectApiName}' AND IsActive = true
   `);
 
-  // Guardado para o inspetor poder mostrar o que FOI ENVIADO, não só o retorno.
-  const corpo = {
-    batchRequests: [
-      { method: 'GET', url: `${version}/query?q=${enc(qForms)}` },
-      { method: 'GET', url: `${version}/query?q=${enc(qFlows)}` },
-      { method: 'GET', url: `${version}/query?q=${enc(qRecordTypes)}` },
-    ],
-  };
-  const request = { method: 'POST', url: `${v()}/composite/batch`, body: corpo };
+  const { raw: resposta, request, refeitos, resultado, registros } = await batchDeQueries({
+    forms: qForms,
+    flows: qFlows,
+    recordTypes: qRecordTypes,
+  });
 
-  const resposta = await sfPost(request.url, corpo);
-
-  const [rForms, rFlows, rRts] = resposta.results ?? [];
   const warnings = [];
 
-  const erro = (r, nome) => {
+  // Uma query cortada volta 200 e parece sucesso. Aqui isso significaria menos
+  // formulários no catálogo, ou um Record Type "inexistente" que existe — por
+  // isso o `batchDeQueries` refaz, e o aviso registra que a viagem extra houve.
+  for (const nome of refeitos) {
+    warnings.push(`"${nome}" voltou cortado do composite/batch e foi refeito numa consulta própria.`);
+  }
+
+  const erro = (nome, rotulo) => {
+    const r = resultado(nome);
     if (r?.statusCode === 200) return false;
     const corpo = Array.isArray(r?.result) ? r.result[0] : r?.result;
-    warnings.push(`${nome}: ${corpo?.errorCode ?? r?.statusCode} — ${corpo?.message ?? 'falhou'}`);
+    warnings.push(`${rotulo}: ${corpo?.errorCode ?? r?.statusCode} — ${corpo?.message ?? 'falhou'}`);
     return true;
   };
 
-  if (erro(rForms, config.formsObject)) {
+  if (erro('forms', config.formsObject)) {
     return { forms: [], recordTypes: [], warnings, request, raw: resposta };
   }
-  erro(rFlows, 'FlowDefinitionView');
-  erro(rRts, 'RecordType');
+  erro('flows', 'FlowDefinitionView');
+  erro('recordTypes', 'RecordType');
 
   const flowPorApiName = new Map(
-    (rFlows?.result?.records ?? [])
+    registros('flows')
       .filter((f) => f.ApiName && f.ActiveVersionId)
       .map((f) => [
         f.ApiName,
@@ -375,10 +366,10 @@ export async function discoverFormCatalog({ objectApiName, source = null, formId
       ])
   );
 
-  const rtRows = rRts?.result?.records ?? [];
+  const rtRows = registros('recordTypes');
   const rtPorDevName = new Map(rtRows.map((rt) => [rt.DeveloperName, rt]));
 
-  const forms = (rForms.result?.records ?? []).map((fd) => {
+  const forms = registros('forms').map((fd) => {
     const rt = rtPorDevName.get(fd.RecordTypeDevName__c) ?? null;
     const flow = fd.FlowApiName__c ? flowPorApiName.get(fd.FlowApiName__c) ?? null : null;
     const problemas = [];
@@ -420,6 +411,66 @@ export async function discoverFormCatalog({ objectApiName, source = null, formId
 // ---------------------------------------------------------------------------
 
 export const soql = (query) => sfGet(`${v()}/query?q=${encodeURIComponent(query)}`);
+
+/**
+ * Várias SOQL numa requisição HTTP só, com os resultados COMPLETOS.
+ *
+ * O `composite/batch` pode devolver uma query CORTADA — `done: false`, com uma
+ * fração dos registros — e ainda assim responder 200. Quem não olhar o `done`
+ * trata o pedaço como se fosse o todo.
+ *
+ * Medido nesta org, com a especificação de um formulário (38 linhas largas) e o
+ * schema de Case (397 campos):
+ *
+ *   [spec]                          38 → 38
+ *   [schema, spec]                  397 → 397  |  38 → 1   CORTADO
+ *   [spec, schema]                  38 → 38    |  397 → 397
+ *   [spec, schema, schema]          tudo inteiro, 369 KB
+ *   [schema, schema, schema, spec]  os três inteiros  |  38 → 1   CORTADO
+ *
+ * Repare que 369 KB passa e 162 KB corta: NÃO é um teto de tamanho da resposta.
+ * O que reproduz é a consulta de linhas largas vir depois de uma consulta ao
+ * schema — provavelmente o Salesforce recalcula o tamanho do lote por largura
+ * de linha, mas com essas medições eu não sei a regra, e chutar seria pior que
+ * admitir. Por isso a ordem das subrequisições é OTIMIZAÇÃO (as pesadas por
+ * último reduzem a chance), e a garantia é esta função: o que voltar cortado é
+ * refeito fora do batch, onde o corte não existe.
+ *
+ * Recebe `{ nome: soql }` e devolve os registros por nome, mais a lista do que
+ * precisou ser refeito — para o chamador poder contar as viagens de verdade.
+ */
+export async function batchDeQueries(queries) {
+  const version = v();
+  const uma = (q) => q.replace(/\s+/g, ' ').trim();
+  const paraBatch = (q) => `v${config.apiVersion}/query?q=${encodeURIComponent(uma(q))}`;
+  const paraGet = (q) => `${version}/query?q=${encodeURIComponent(uma(q))}`;
+
+  const nomes = Object.keys(queries).filter((n) => queries[n]);
+  const corpo = { batchRequests: nomes.map((n) => ({ method: 'GET', url: paraBatch(queries[n]) })) };
+  const request = { method: 'POST', url: `${version}/composite/batch`, body: corpo };
+
+  const raw = await sfPost(request.url, corpo);
+
+  const porNome = {};
+  nomes.forEach((n, i) => (porNome[n] = raw.results?.[i] ?? null));
+
+  const refeitos = [];
+  for (const n of nomes) {
+    if (porNome[n]?.result?.done === false) {
+      refeitos.push(n);
+      porNome[n] = { statusCode: 200, result: await sfGet(paraGet(queries[n])) };
+    }
+  }
+
+  return {
+    raw,
+    request,
+    refeitos,
+    resultado: (n) => porNome[n] ?? null,
+    registros: (n) => porNome[n]?.result?.records ?? [],
+    falhou: (n) => (porNome[n] ? porNome[n].statusCode !== 200 : true),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Tooling API
@@ -514,9 +565,6 @@ const NOME_API = /^[A-Za-z0-9_]{1,80}$/;
  * recursos de ui-api com INVALID_BATCH_REQUEST.
  */
 export async function schemaEFormulario(objectApiName, { specSoql, recordTypeDevName = null } = {}) {
-  const version = v();
-  const url = (q) => `${version}/query?q=${encodeURIComponent(q.replace(/\s+/g, ' ').trim())}`;
-
   const qSchema = `SELECT ${COLUNAS_SCHEMA} FROM EntityParticle
     WHERE EntityDefinition.QualifiedApiName = '${objectApiName}' AND IsCreatable = true`;
 
@@ -540,40 +588,17 @@ export async function schemaEFormulario(objectApiName, { specSoql, recordTypeDev
   const qRt = `SELECT Id, Name, DeveloperName FROM RecordType
     WHERE SobjectType = '${objectApiName}' AND DeveloperName = '${palpite}' LIMIT 1`;
 
-  // A ORDEM importa, e não é estética.
-  //
-  // O `composite/batch` corta por tamanho ACUMULADO: o que vem depois de uma
-  // subrequisição grande volta com `done: false` e um punhado de registros.
-  // Medido nesta org — a especificação sozinha traz 38 linhas; depois do schema
-  // (397 campos, 160 KB) traz 1. E o pior é que volta 200: um formulário sem
-  // seções, sem erro nenhum.
-  //
-  // Por isso o schema, que é o pesado, vai POR ÚLTIMO — mas ordem é otimização,
-  // não garantia. Quem garante é a verificação de `done` mais abaixo.
-  const nomes = ['spec', 'recordType', 'dependentes', 'schema'];
-  const queries = { spec: specSoql, recordType: palpite ? qRt : null, dependentes: qDependentes, schema: qSchema };
-  const enviados = nomes.filter((n) => queries[n]);
+  // A ordem coloca o schema, que é o pesado, POR ÚLTIMO: reduz a chance de o
+  // batch cortar o que vem depois. É otimização — quem garante o resultado
+  // completo é o `batchDeQueries`, que confere `done` e refaz o que veio
+  // cortado. Ver a explicação e as medições lá.
+  const { raw, request, refeitos, registros } = await batchDeQueries({
+    spec: specSoql,
+    recordType: palpite ? qRt : null,
+    dependentes: qDependentes,
+    schema: qSchema,
+  });
 
-  const corpo = { batchRequests: enviados.map((n) => ({ method: 'GET', url: url(queries[n]) })) };
-  const request = { method: 'POST', url: `${version}/composite/batch`, body: corpo };
-
-  const raw = await sfPost(request.url, corpo);
-
-  const porNome = {};
-  enviados.forEach((n, i) => (porNome[n] = raw.results?.[i] ?? null));
-
-  // Truncado é resultado ERRADO, não parcial: refaz fora do batch, onde o corte
-  // não existe. Custa uma viagem só quando acontece, e o chamador fica sabendo.
-  const refeitos = [];
-  for (const n of enviados) {
-    const r = porNome[n]?.result;
-    if (r?.done === false) {
-      refeitos.push(n);
-      porNome[n] = { statusCode: 200, result: await sfGet(url(queries[n])) };
-    }
-  }
-
-  const registros = (n) => porNome[n]?.result?.records ?? [];
   const campos = registros('schema');
   const linhasDep = registros('dependentes');
 
