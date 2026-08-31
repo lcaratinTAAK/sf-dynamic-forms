@@ -19,7 +19,7 @@ import {
   discoverFormCatalog,
   sfGet,
   SalesforceError,
-  schemaECatalogo,
+  schemaEFormulario,
 } from './salesforce.js';
 import { buildSubmitPayload, indexarCampos } from './contract.js';
 import * as uiapi from './adapters/uiapi.js';
@@ -179,7 +179,15 @@ app.get('/api/form', async (req, res) => {
     } else if (source === 'formspec') {
       if (!formId) throw new Error('Parâmetro obrigatório: formId');
       if (!/^[A-Za-z0-9]{15,18}$/.test(String(formId))) throw new Error(`formId inválido: ${formId}`);
-      contract = await formspec.buildContract({ formId, objectApiName: config.objectApiName });
+      // O DeveloperName vem do catálogo que o cliente já leu para montar o
+      // seletor. É PALPITE: serve só para o Record Type caber no mesmo
+      // composite da especificação. O adaptador confere contra o que a
+      // especificação diz antes de usar — ver `buildContract`.
+      contract = await formspec.buildContract({
+        formId,
+        objectApiName: config.objectApiName,
+        recordTypeDevName: req.query.recordTypeDevName || null,
+      });
     } else {
       throw new Error(
         `source inválido: "${source}". Use "uiapi", "uiapi-v2", "screenflow" ou "formspec".`
@@ -216,7 +224,7 @@ app.post('/api/traduzir', (req, res) => {
     return res.status(400).json({ error: 'Nenhuma linha com RecordType.DeveloperName = "Form".' });
   }
 
-  // O mesmo cruzamento que `schemaECatalogo` faz com o retorno do composite:
+  // O mesmo cruzamento que `schemaEFormulario` faz com o retorno do composite:
   // ControllingFieldDefinitionId aponta para o DurableId de OUTRO campo.
   const porDurable = {};
   for (const c of schema) if (c.DurableId) porDurable[c.DurableId] = c.QualifiedApiName;
@@ -314,18 +322,23 @@ app.post('/api/replay', async (req, res) => {
     }
   }
 
-  // `schema:<Objeto>` — metadado dos campos + catálogo, em composite/batch.
-  if (typeof replayId === 'string' && replayId.startsWith('schema:')) {
-    const objeto = replayId.slice('schema:'.length);
+  // `pacote:<Objeto>:<formId>:<recordTypeDevName>` — schema, dependências de
+  // picklist, especificação e Record Type, no mesmo composite/batch que o
+  // adaptador monta. O último segmento pode vir vazio: o palpite é opcional.
+  if (typeof replayId === 'string' && replayId.startsWith('pacote:')) {
+    const [objeto = '', formId = '', devName = ''] = replayId.slice('pacote:'.length).split(':');
     if (!/^[A-Za-z0-9_]{1,64}$/.test(objeto)) {
       return res.status(400).json({ error: `Objeto inválido: ${objeto}` });
     }
+    if (!/^[A-Za-z0-9]{15,18}$/.test(formId)) {
+      return res.status(400).json({ error: `formId inválido: ${formId}` });
+    }
     const inicio = Date.now();
     try {
-      const qCatalogo =
-        `SELECT Id, Name, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c ` +
-        `FROM SI_FormSpec__c WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name`;
-      const { raw, request } = await schemaECatalogo(objeto, { catalogoSoql: qCatalogo });
+      const { raw, request } = await schemaEFormulario(objeto, {
+        specSoql: formspec.querySpec(formId),
+        recordTypeDevName: devName || null,
+      });
       return responder(res, inicio, path, raw, request);
     } catch (err) {
       return res.status(502).json({ path, error: err.message, preview: null });

@@ -92,11 +92,17 @@ export default function App() {
     setSubmitResult(null);
     setCreateResult(null);
 
+    // O catálogo já trouxe o Record Type de cada formulário; repassá-lo deixa
+    // o servidor montar tudo num composite só, em vez de descobrir o Id numa
+    // chamada à parte depois de ler a especificação.
+    const escolhido = forms.find((f) => f.id === formId);
+
     api
       .getForm({
         source,
         recordTypeId: usaRecordType(source) ? recordTypeId : undefined,
         formId: usaCatalogo(source) ? formId : undefined,
+        recordTypeDevName: source === 'formspec' ? escolhido?.recordTypeDevName : undefined,
       })
       .then((c) => {
         setContract(c);
@@ -108,7 +114,7 @@ export default function App() {
         setError(e.message);
       })
       .finally(() => setLoading(false));
-  }, [source, recordTypeId, formId]);
+  }, [source, recordTypeId, formId, forms]);
 
   const handleChange = (apiName, value) =>
     setValues((prev) => ({ ...prev, [apiName]: value }));

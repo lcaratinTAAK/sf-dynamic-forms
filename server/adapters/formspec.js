@@ -17,18 +17,24 @@
  *   Rule        regra de visibilidade, filha do componente que afeta
  *   Content     bloco de texto estático
  *
- * Chamadas:
- *   GET /query        a especificação INTEIRA numa SOQL só
- *   GET /ui-api/object-info/{obj}                      (tipos e labels)
- *   GET /ui-api/object-info/{obj}/picklist-values/{rt} (valores)
+ * Chamadas — duas:
+ *   POST /composite/batch                              schema dos campos,
+ *                                                      dependências de picklist,
+ *                                                      a especificação inteira
+ *                                                      e o Record Type de destino
+ *   GET  /ui-api/object-info/{obj}/picklist-values/{rt} valores válidos
+ *
+ * As picklists ficam de fora por imposição do Salesforce: `composite/batch`
+ * recusa recursos de ui-api com INVALID_BATCH_REQUEST, e é a única fonte que
+ * respeita Record Type e devolve as dependências.
  *
  * O que NÃO se guarda aqui, de propósito: label, tipo, tamanho e ajuda do
- * campo. Isso é metadado do campo e vem do object-info em tempo de leitura.
+ * campo. Isso é metadado do campo e vem do schema em tempo de leitura.
  * Duplicar aqui criaria uma segunda verdade que diverge no dia em que alguém
  * mexer no campo.
  */
 
-import { soql, getPicklistValues, schemaECatalogo } from '../salesforce.js';
+import { soql, getPicklistValues, schemaEFormulario } from '../salesforce.js';
 import {
   emptyContract,
   makeField,
@@ -84,53 +90,83 @@ export async function listarFormularios() {
   }));
 }
 
-export async function buildContract({ formId, objectApiName }) {
+export async function buildContract({ formId, objectApiName, recordTypeDevName = null }) {
   const calls = [];
+  const avisos = [];
   const track = (label, path, extra = {}) => calls.push({ label, path, ...extra });
 
-  // 1. Metadado dos campos + catálogo de formulários, numa viagem só.
+  // 1. Schema, dependências de picklist, especificação e Record Type — numa
+  //    viagem só.
   //
-  //    Vem PRIMEIRO porque é o que alimenta o seletor: sem o catálogo não há
-  //    formulário para escolher, e o `formId` que chega aqui saiu dele. A
-  //    ordem no inspetor reflete a ordem real das chamadas.
-  //
-  //    Substitui `ui-api/object-info`, que devolve TODOS os campos com 36
-  //    atributos cada — 518 KB em Case — e não aceita filtro. O EntityParticle
-  //    é SOQL comum, então escolhe as colunas e cabe no mesmo composite.
-  const qCatalogo =
-    `SELECT Id, Name, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c ` +
-    `FROM ${OBJ} WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name`;
-
-  const schema = await schemaECatalogo(objectApiName, { catalogoSoql: qCatalogo });
-  track(
-    'Metadado dos campos + catálogo de formulários',
-    `/composite/batch → EntityParticle (${objectApiName}) + ${OBJ} (formulários)`,
-    { replayId: `schema:${objectApiName}`, method: 'POST' }
-  );
-  const indiceDeCampos = indexarCampos(schema.campos);
-  const controladorDe = schema.controladorDe ?? {};
-
-  // 2. A especificação do formulário escolhido — uma chamada.
+  //    O Record Type cabe aqui porque o DeveloperName vem do CATÁLOGO, que o
+  //    cliente já leu para montar o seletor. Sem ele, a consulta dependeria do
+  //    retorno da especificação, e num `composite/batch` as subrequisições são
+  //    independentes — era isso que obrigava a duas chamadas separadas.
   const q = querySpec(formId);
-  track('Especificação do formulário', `/query?q=${q}`);
-  const spec = await soql(q);
-  const linhas = spec.records || [];
+  const pacote = await schemaEFormulario(objectApiName, {
+    specSoql: q,
+    recordTypeDevName,
+  });
+
+  track(
+    'Metadado dos campos + especificação do formulário',
+    `/composite/batch → EntityParticle + FieldDefinition (${objectApiName}) + ${OBJ}` +
+      (recordTypeDevName ? ' + RecordType' : ''),
+    { replayId: `pacote:${objectApiName}:${formId}:${recordTypeDevName ?? ''}`, method: 'POST' }
+  );
+
+  const indiceDeCampos = indexarCampos(pacote.campos);
+  const controladorDe = pacote.controladorDe ?? {};
+  const linhas = pacote.spec;
 
   const raiz = linhas.find((r) => r.Id === formId);
   if (!raiz) throw new Error(`Formulário ${formId} não encontrado em ${OBJ}.`);
 
   const objeto = raiz.ObjectApiName__c || objectApiName;
+  const esperado = raiz.TargetRecordTypeDevName__c;
 
-  // 3. Record Type de destino — a especificação guarda o DeveloperName, que é
-  //    o que sobrevive a um deploy entre orgs; o Id é resolvido na leitura.
-  const qRt =
-    `SELECT Id, Name FROM RecordType WHERE SobjectType = '${objeto}' ` +
-    `AND DeveloperName = '${raiz.TargetRecordTypeDevName__c}' LIMIT 1`;
-  track('Record Type de destino', `/query?q=${qRt}`);
-  const rtRow = await soql(qRt);
-  const rt = rtRow.records?.[0];
+  if (pacote.palpiteRecusado) {
+    avisos.push('recordTypeDevName recebido em formato inválido; ignorado e resolvido pela especificação.');
+  }
 
-  // 4. Picklists — continuam na UI API. É a única fonte que respeita Record
+  // O batch corta por tamanho acumulado e devolve 200 mesmo assim. Quando isso
+  // acontece a consulta é refeita sozinha, e a chamada extra aparece aqui —
+  // senão o inspetor mostraria duas chamadas onde houve três.
+  for (const nome of pacote.refeitos ?? []) {
+    track(`Refazendo "${nome}" — truncado no batch`, `/query (fora do composite)`);
+    avisos.push(
+      `A subrequisição "${nome}" voltou truncada do composite/batch e foi refeita sozinha. ` +
+        'O batch corta por tamanho acumulado; considere reduzir as colunas do schema.'
+    );
+  }
+
+  // 2. O DeveloperName que chegou é PALPITE. Quem manda é a especificação: se
+  //    divergirem, o que veio na requisição é descartado.
+  //
+  //    Não é zelo teórico. O `RecordTypeId` é campo de back-end, injetado pelo
+  //    servidor justamente para o formulário não escolher em que Record Type o
+  //    Caso nasce — aceitar o da query string devolveria essa escolha a quem
+  //    edita a URL. A divergência também acontece sem má-fé, quando o admin
+  //    troca o Record Type e o cliente está com catálogo velho em cache; nos
+  //    dois casos, refazer a consulta é o lado certo para errar.
+  let rt = pacote.recordType;
+  if (rt && rt.DeveloperName !== esperado) {
+    avisos.push(
+      `recordTypeDevName "${rt.DeveloperName}" diverge da especificação ("${esperado}"); ` +
+        'o da especificação prevaleceu. Catálogo desatualizado no cliente?'
+    );
+    rt = null;
+  }
+
+  if (!rt) {
+    const qRt =
+      `SELECT Id, Name, DeveloperName FROM RecordType WHERE SobjectType = '${objeto}' ` +
+      `AND DeveloperName = '${esperado}' LIMIT 1`;
+    track('Record Type de destino', `/query?q=${qRt}`);
+    rt = (await soql(qRt)).records?.[0] ?? null;
+  }
+
+  // 3. Picklists — continuam na UI API. É a única fonte que respeita Record
   //    Type e devolve as dependências, e não entra em composite: o endpoint
   //    recusa recursos de ui-api com INVALID_BATCH_REQUEST.
   let picklists = null;
@@ -141,6 +177,7 @@ export async function buildContract({ formId, objectApiName }) {
 
   const contract = specToContract(linhas, { formId, objectApiName: objeto, indiceDeCampos, controladorDe, picklists, rt });
   contract.diagnostics.calls = calls;
+  contract.diagnostics.warnings.unshift(...avisos);
   return contract;
 }
 

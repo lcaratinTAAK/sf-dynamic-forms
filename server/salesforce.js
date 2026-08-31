@@ -483,19 +483,37 @@ const COLUNAS_SCHEMA = [
   'DurableId',
 ].join(', ');
 
+/** Nome de API do Salesforce. Serve de guarda contra injeção em SOQL. */
+const NOME_API = /^[A-Za-z0-9_]{1,80}$/;
+
 /**
- * Metadado dos campos + catálogo de formulários, numa viagem só.
+ * Tudo que o formulário precisa do Salesforce, numa viagem só.
  *
- * Troca `ui-api/object-info` por SOQL em `EntityParticle`. O object-info devolve
- * TODOS os campos do objeto com 36 atributos cada — 518 KB em Case — e a UI API
- * não aceita filtro. O EntityParticle é consultável, então dá para escolher as
- * colunas, e por ser SOQL comum entra no mesmo composite do catálogo.
+ *   1. EntityParticle    schema dos campos: tipo, label, tamanho, ajuda
+ *   2. FieldDefinition   quem controla cada picklist dependente
+ *   3. SI_FormSpec__c    a especificação inteira do formulário escolhido
+ *   4. RecordType        o Id do Record Type de destino          (opcional)
  *
- * As picklists continuam na UI API: ela é a única que respeita Record Type e
- * devolve as dependências, e não pode ir em composite — o endpoint recusa
+ * O schema troca `ui-api/object-info` por SOQL: o object-info devolve TODOS os
+ * campos do objeto com 36 atributos cada — 377 KB em Case nesta org — e a UI
+ * API não aceita filtro. O EntityParticle é consultável, então dá para escolher
+ * as colunas, e por ser SOQL comum entra em composite.
+ *
+ * A quarta subrequisição só existe quando o chamador informa o DeveloperName.
+ * Ele vem do catálogo, que o cliente já leu para montar o seletor — sem isso a
+ * consulta dependeria do retorno da terceira, e num `composite/batch` as
+ * subrequisições são independentes. (`/composite` resolveria com
+ * `@{ref.records[0].campo}`, mas a referência não pode ir URL-encodada, e
+ * errar isso devolve 200 com zero registros — falha silenciosa.)
+ *
+ * O DeveloperName que chega é PALPITE, não verdade: quem manda é o
+ * `TargetRecordTypeDevName__c` da especificação, e conferir isso é do chamador.
+ *
+ * As picklists continuam na UI API: é a única fonte que respeita Record Type e
+ * devolve as dependências, e não entra em composite — o endpoint recusa
  * recursos de ui-api com INVALID_BATCH_REQUEST.
  */
-export async function schemaECatalogo(objectApiName, { catalogoSoql = null } = {}) {
+export async function schemaEFormulario(objectApiName, { specSoql, recordTypeDevName = null } = {}) {
   const version = v();
   const url = (q) => `${version}/query?q=${encodeURIComponent(q.replace(/\s+/g, ' ').trim())}`;
 
@@ -515,20 +533,49 @@ export async function schemaECatalogo(objectApiName, { catalogoSoql = null } = {
     FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = '${objectApiName}'
     AND ControllingFieldDefinitionId != null`;
 
-  const subrequests = [
-    { method: 'GET', url: url(qSchema) },
-    { method: 'GET', url: url(qDependentes) },
-  ];
-  if (catalogoSoql) subrequests.push({ method: 'GET', url: url(catalogoSoql) });
+  // Interpolar num SOQL o que veio do cliente exige a guarda; sem ela, o
+  // parâmetro fecharia a aspa e escreveria a própria condição.
+  const palpite = recordTypeDevName && NOME_API.test(recordTypeDevName) ? recordTypeDevName : null;
 
-  const corpo = { batchRequests: subrequests };
+  const qRt = `SELECT Id, Name, DeveloperName FROM RecordType
+    WHERE SobjectType = '${objectApiName}' AND DeveloperName = '${palpite}' LIMIT 1`;
+
+  // A ORDEM importa, e não é estética.
+  //
+  // O `composite/batch` corta por tamanho ACUMULADO: o que vem depois de uma
+  // subrequisição grande volta com `done: false` e um punhado de registros.
+  // Medido nesta org — a especificação sozinha traz 38 linhas; depois do schema
+  // (397 campos, 160 KB) traz 1. E o pior é que volta 200: um formulário sem
+  // seções, sem erro nenhum.
+  //
+  // Por isso o schema, que é o pesado, vai POR ÚLTIMO — mas ordem é otimização,
+  // não garantia. Quem garante é a verificação de `done` mais abaixo.
+  const nomes = ['spec', 'recordType', 'dependentes', 'schema'];
+  const queries = { spec: specSoql, recordType: palpite ? qRt : null, dependentes: qDependentes, schema: qSchema };
+  const enviados = nomes.filter((n) => queries[n]);
+
+  const corpo = { batchRequests: enviados.map((n) => ({ method: 'GET', url: url(queries[n]) })) };
   const request = { method: 'POST', url: `${version}/composite/batch`, body: corpo };
 
   const raw = await sfPost(request.url, corpo);
-  const [schema, dependentes, catalogo] = raw.results ?? [];
 
-  const campos = schema?.result?.records ?? [];
-  const linhasDep = dependentes?.result?.records ?? [];
+  const porNome = {};
+  enviados.forEach((n, i) => (porNome[n] = raw.results?.[i] ?? null));
+
+  // Truncado é resultado ERRADO, não parcial: refaz fora do batch, onde o corte
+  // não existe. Custa uma viagem só quando acontece, e o chamador fica sabendo.
+  const refeitos = [];
+  for (const n of enviados) {
+    const r = porNome[n]?.result;
+    if (r?.done === false) {
+      refeitos.push(n);
+      porNome[n] = { statusCode: 200, result: await sfGet(url(queries[n])) };
+    }
+  }
+
+  const registros = (n) => porNome[n]?.result?.records ?? [];
+  const campos = registros('schema');
+  const linhasDep = registros('dependentes');
 
   // O ControllingFieldDefinitionId aponta para o DurableId de OUTRO campo. A
   // consulta de dependentes só traz quem TEM controlador, e o controlador
@@ -550,6 +597,10 @@ export async function schemaECatalogo(objectApiName, { catalogoSoql = null } = {
     request,
     campos,
     controladorDe,
-    catalogo: catalogo?.result?.records ?? [],
+    spec: registros('spec'),
+    recordType: registros('recordType')[0] ?? null,
+    palpiteRecusado: Boolean(recordTypeDevName) && !palpite,
+    /** Subrequisições que o batch truncou e precisaram ser refeitas sozinhas. */
+    refeitos,
   };
 }

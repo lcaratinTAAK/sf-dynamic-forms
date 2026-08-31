@@ -13,11 +13,18 @@ export const getWhoami = () => get('/api/whoami');
 /** Catálogo de formulários (FormDefinition__c), filtrado pela fonte. */
 export const getForms = (source) => get(`/api/forms?source=${encodeURIComponent(source)}`);
 
-export function getForm({ source, recordTypeId, flowId, formId }) {
+/**
+ * `recordTypeDevName` sai do catálogo que esta tela já carregou, e economiza
+ * uma viagem: com ele, o Record Type cabe no mesmo composite da especificação.
+ * É palpite — o servidor confere contra a especificação antes de usar — então
+ * omitir custa uma chamada a mais, nunca um formulário errado.
+ */
+export function getForm({ source, recordTypeId, flowId, formId, recordTypeDevName }) {
   const qs = new URLSearchParams({ source });
   if (formId) qs.set('formId', formId);
   if (recordTypeId) qs.set('recordTypeId', recordTypeId);
   if (flowId) qs.set('flowId', flowId);
+  if (recordTypeDevName) qs.set('recordTypeDevName', recordTypeDevName);
   return get(`/api/form?${qs}`);
 }
 

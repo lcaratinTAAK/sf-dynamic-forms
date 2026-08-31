@@ -184,50 +184,10 @@
     },
     {
       "name": "01 · Montar o formulário",
-      "description": "As quatro chamadas, na ordem real.\n\nA **01** acontece uma vez, ao abrir a aplicação — traz o schema do objeto e o catálogo de formulários juntos. As **02 a 04** acontecem a cada formulário escolhido.\n\nTotal medido: **470 KB, ~2,0 s**. Noventa por cento do peso está em duas chamadas de schema; a definição do formulário custa 48,9 KB.",
+      "description": "Duas chamadas montam o formulário inteiro. Eram quatro: o Record Type saía numa consulta própria porque dependia do retorno da especificação, e o catálogo era buscado de novo aqui sem ser usado.",
       "item": [
         {
-          "name": "01 · Metadado dos campos + catálogo",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "// Environment vence collection na resolução do Postman. Como o environment",
-                  "// de exemplo declara estas chaves vazias, gravar só na coleção faria a",
-                  "// requisição seguinte ler string vazia — escreve-se onde vai ser lido.",
-                  "const guardar = (chave, valor) =>",
-                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
-                  "",
-                  "pm.test('200', () => pm.response.to.have.status(200));",
-                  "const r = pm.response.json().results || [];",
-                  "",
-                  "const campos = r[0]?.result?.records || [];",
-                  "const deps = r[1]?.result?.records || [];",
-                  "const catalogo = r[2]?.result?.records || [];",
-                  "console.log(`campos: ${campos.length} · dependentes: ${deps.length} · formulários: ${catalogo.length}`);",
-                  "",
-                  "// O ControllingFieldDefinitionId aponta para o DurableId de OUTRO campo;",
-                  "// o índice sai do próprio schema, que já traz a coluna. Custo zero.",
-                  "const porDurable = {};",
-                  "for (const c of campos) if (c.DurableId) porDurable[c.DurableId] = c.QualifiedApiName;",
-                  "for (const d of deps) {",
-                  "  console.log(`  ${d.QualifiedApiName} ← controlado por ${porDurable[d.ControllingFieldDefinitionId] || d.ControllingFieldDefinitionId}`);",
-                  "}",
-                  "",
-                  "if (catalogo.length) {",
-                  "  guardar('formId', catalogo[0].Id);",
-                  "  console.log('formId = ' + catalogo[0].Id + ' (' + catalogo[0].Name + ')');",
-                  "}",
-                  "",
-                  "pm.test('as três subrequisições responderam 200', () => {",
-                  "  pm.expect(r.map((x) => x.statusCode)).to.eql([200, 200, 200]);",
-                  "});"
-                ]
-              }
-            }
-          ],
+          "name": "01 · Tudo do formulário, numa viagem",
           "request": {
             "method": "POST",
             "header": [
@@ -236,10 +196,6 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"batchRequests\": [\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/query?q=SELECT QualifiedApiName, Label, DataType, Length, Precision, Scale, IsNillable, IsCalculated, InlineHelpText, IsDependentPicklist, IsCreatable, IsUpdatable, DurableId FROM EntityParticle WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND IsCreatable = true\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/query?q=SELECT DurableId, QualifiedApiName, ControllingFieldDefinitionId FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND ControllingFieldDefinitionId != null\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/query?q=SELECT Id, Name, PublicLabel__c, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c FROM {{specObject}} WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name\"\n    }\n  ]\n}"
-            },
             "url": {
               "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/composite/batch",
               "host": [
@@ -253,141 +209,59 @@
                 "batch"
               ]
             },
-            "description": "**160,6 KB · 492 ms** — três subrequisições numa viagem só.\n\n1. `EntityParticle` — o schema dos campos: rótulo, tipo, tamanho, ajuda, obrigatoriedade no objeto e FLS do usuário corrente. **159,9 KB**\n2. `FieldDefinition` — quais picklists são dependentes e qual campo controla cada uma. **0,3 KB**\n3. `SI_FormSpec__c` — o catálogo: as linhas com Record Type `Form`. **0,3 KB**\n\n### Por que não `ui-api/object-info`\n\nO `object-info` devolve **todos** os campos com 36 atributos cada — 377,5 KB nesta org — e a UI API não aceita filtro de campo nem de coluna. `EntityParticle` é SOQL comum: escolhe as colunas e, por ser SOQL, cabe no mesmo composite do catálogo.\n\n### Por que a segunda subrequisição existe\n\nNem `EntityParticle` nem `picklist-values` entregam o **nome** do campo controlador de uma picklist dependente. O primeiro só marca `IsDependentPicklist`; o segundo devolve `controllerValues` sem nomear quem controla.\n\n`FieldDefinition.ControllingFieldDefinitionId` aponta para o `DurableId` de outro campo — e o `DurableId` já vem na primeira subrequisição. O script de teste faz o cruzamento e imprime os pares no console.\n\n> `FieldDefinition` **não** expõe `InlineHelpText` e `EntityParticle` **não** expõe `ControllingFieldDefinitionId`. Nenhum dos dois resolve sozinho — daí as duas consultas.\n\n### Por que o catálogo vem aqui\n\nPorque é ele que alimenta o seletor. Sem catálogo não há formulário para escolher, e o `formId` das chamadas seguintes sai daqui.\n\nGrava `formId` com o primeiro formulário do catálogo."
-          }
-        },
-        {
-          "name": "02 · A especificação do formulário",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "// Environment vence collection na resolução do Postman. Como o environment",
-                  "// de exemplo declara estas chaves vazias, gravar só na coleção faria a",
-                  "// requisição seguinte ler string vazia — escreve-se onde vai ser lido.",
-                  "const guardar = (chave, valor) =>",
-                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
-                  "",
-                  "pm.test('200', () => pm.response.to.have.status(200));",
-                  "const linhas = pm.response.json().records || [];",
-                  "",
-                  "const porTipo = {};",
-                  "for (const l of linhas) {",
-                  "  const t = l.RecordType?.DeveloperName || '?';",
-                  "  porTipo[t] = (porTipo[t] || 0) + 1;",
-                  "}",
-                  "console.log(`${linhas.length} linhas: ` + JSON.stringify(porTipo));",
-                  "",
-                  "const raiz = linhas.find((l) => l.RecordType?.DeveloperName === 'Form');",
-                  "pm.test('a raiz veio junto', () => pm.expect(raiz).to.be.an('object'));",
-                  "if (raiz) {",
-                  "  guardar('recordTypeDevName', raiz.TargetRecordTypeDevName__c);",
-                  "  console.log('Record Type de destino = ' + raiz.TargetRecordTypeDevName__c);",
-                  "}"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Page__c, Width__c, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c, PublicLabel__c, Description__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c, IsRequired__c, IsReadOnly__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, ConditionFieldApiName__c, Operator__c, Value__c, Effect__c, FilterLogicType__c, FilterLogic__c, Body__c, IsRepeating__c, ItemLabel__c, AddButtonText__c, Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true ORDER BY Sort__c NULLS FIRST, Name",
-              "host": [
-                "{{instanceUrl}}"
-              ],
-              "path": [
-                "services",
-                "data",
-                "v{{apiVersion}}",
-                "query"
-              ],
-              "query": [
-                {
-                  "key": "q",
-                  "value": "SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Page__c, Width__c, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c, PublicLabel__c, Description__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c, IsRequired__c, IsReadOnly__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, ConditionFieldApiName__c, Operator__c, Value__c, Effect__c, FilterLogicType__c, FilterLogic__c, Body__c, IsRepeating__c, ItemLabel__c, AddButtonText__c, Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true ORDER BY Sort__c NULLS FIRST, Name"
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"batchRequests\": [\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/query?q=SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Page__c, Width__c, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c, PublicLabel__c, Description__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c, IsRequired__c, IsReadOnly__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, ConditionFieldApiName__c, Operator__c, Value__c, Effect__c, FilterLogicType__c, FilterLogic__c, Body__c, IsRepeating__c, ItemLabel__c, AddButtonText__c, Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true ORDER BY Sort__c NULLS FIRST, Name\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/query?q=SELECT Id, Name, DeveloperName FROM RecordType WHERE SobjectType = '{{objectApiName}}' AND DeveloperName = '{{recordTypeDevName}}' LIMIT 1\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/query?q=SELECT DurableId, QualifiedApiName, ControllingFieldDefinitionId FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND ControllingFieldDefinitionId != null\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"v{{apiVersion}}/query?q=SELECT QualifiedApiName, Label, DataType, Length, Precision, Scale, IsNillable, IsCalculated, InlineHelpText, IsDependentPicklist, IsCreatable, IsUpdatable, DurableId FROM EntityParticle WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND IsCreatable = true\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
                 }
-              ]
+              }
             },
-            "description": "**48,7 KB · 165 ms** — a árvore inteira do formulário: seções, campos, blocos de texto, anexos, listas e regras.\n\n### O truque\n\n`Id = :formId OR Form__c = :formId`.\n\nToda linha da especificação aponta para a raiz em `Form__c`, além de apontar para o pai em `Parent__c`. É redundante de propósito: com isso uma condição **plana** traz a árvore completa, e a hierarquia é remontada na memória por `Parent__c`.\n\nSem essa redundância seriam N consultas ou Apex REST, porque SOQL só desce **um** nível de sub-query.\n\n### Os papéis\n\n`RecordType.DeveloperName` discrimina cada linha: `Form`, `Section`, `RepeatingSection`, `Field`, `Attachment`, `Content`, `Rule`.\n\nO script de teste imprime a contagem por tipo e grava `recordTypeDevName`."
-          }
-        },
-        {
-          "name": "03 · Record Type de destino",
+            "description": "Quatro subrequisições: a especificação inteira do formulário, o Record Type de destino, as dependências de picklist e o schema dos campos.\n\nO Record Type cabe aqui porque o DeveloperName vem do CATÁLOGO, que o cliente já leu para montar o seletor. Sem ele a consulta dependeria do retorno da especificação, e num composite/batch as subrequisições são independentes.\n\nA ORDEM não é estética: o batch corta por tamanho ACUMULADO e devolve 200 mesmo assim. Medido nesta org — a especificação sozinha traz 38 linhas; colocada DEPOIS do schema (397 campos, 160 KB) traz 1, com done: false. Por isso o schema vai por último, e por isso o teste abaixo confere `done` em todas."
+          },
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// Environment vence collection na resolução do Postman. Como o environment",
-                  "// de exemplo declara estas chaves vazias, gravar só na coleção faria a",
-                  "// requisição seguinte ler string vazia — escreve-se onde vai ser lido.",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json().results;",
+                  "const nomes = ['especificação', 'recordType', 'dependentes', 'schema'];",
+                  "",
+                  "// `done: false` é resultado ERRADO, não parcial — e vem com status 200.",
+                  "// Sem esta checagem, um formulário sem seções passaria por formulário válido.",
+                  "pm.test('nenhuma subrequisição truncada', () => {",
+                  "  r.forEach((x, i) => pm.expect(x.result.done, nomes[i]).to.not.eql(false));",
+                  "});",
+                  "",
+                  "// Truncamento não é a única forma de vir pouca coisa: com `formId` vazio a",
+                  "// SOQL vira `Form__c = null`, que casa com a linha raiz e devolve 1 registro",
+                  "// com done=true. Um formulário só com a raiz não tem seção nenhuma.",
+                  "pm.test('a especificação veio inteira, não só a raiz', () => {",
+                  "  pm.expect(r[0].result.totalSize, `formId = {{formId}}`).to.be.above(1);",
+                  "});",
+                  "",
+                  "r.forEach((x, i) => console.log(`${nomes[i]}: ${x.result.totalSize} registros, done=${x.result.done}`));",
+                  "",
                   "const guardar = (chave, valor) =>",
                   "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
                   "",
-                  "pm.test('200', () => pm.response.to.have.status(200));",
-                  "const rt = pm.response.json().records?.[0];",
-                  "pm.test('o Record Type existe e está ativo', () => pm.expect(rt).to.be.an('object'));",
+                  "const rt = r[1].result.records[0];",
                   "if (rt) {",
                   "  guardar('recordTypeId', rt.Id);",
-                  "  console.log('recordTypeId = ' + rt.Id + ' (' + rt.Name + ')');",
+                  "  console.log('recordTypeId = ' + rt.Id);",
+                  "} else {",
+                  "  console.warn('Record Type \"{{recordTypeDevName}}\" não encontrado — as picklists não têm como ser resolvidas.');",
                   "}"
                 ]
               }
             }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, DeveloperName FROM RecordType WHERE SobjectType = '{{objectApiName}}' AND DeveloperName = '{{recordTypeDevName}}' LIMIT 1",
-              "host": [
-                "{{instanceUrl}}"
-              ],
-              "path": [
-                "services",
-                "data",
-                "v{{apiVersion}}",
-                "query"
-              ],
-              "query": [
-                {
-                  "key": "q",
-                  "value": "SELECT Id, Name, DeveloperName FROM RecordType WHERE SobjectType = '{{objectApiName}}' AND DeveloperName = '{{recordTypeDevName}}' LIMIT 1"
-                }
-              ]
-            },
-            "description": "**0,2 KB · 132 ms**\n\nA especificação guarda o `DeveloperName`, não o Id. Id de Record Type **muda entre orgs** e não sobreviveria a uma promoção de forno para produção — o formulário passaria a apontar para nada, sem erro visível.\n\nO preço de guardar o nome é esta chamada. Vale.\n\n> Atenção: SOQL em `RecordType` **não** respeita visibilidade por profile. Numa org de produção esta consulta enxerga Record Types que o usuário não deveria ver. Aqui não importa, porque o Record Type já foi escolhido pelo catálogo — mas importa para quem usar SOQL como mecanismo de descoberta."
-          }
+          ]
         },
         {
-          "name": "04 · Valores de picklist, por Record Type",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('200', () => pm.response.to.have.status(200));",
-                  "const campos = pm.response.json().picklistFieldValues || {};",
-                  "const nomes = Object.keys(campos);",
-                  "console.log(`${nomes.length} picklists · ${Math.round(pm.response.responseSize / 1024)} KB`);",
-                  "",
-                  "const dependentes = nomes.filter((n) => Object.keys(campos[n].controllerValues || {}).length);",
-                  "console.log('dependentes: ' + (dependentes.join(', ') || 'nenhuma'));",
-                  "",
-                  "// controllerValues nomeia os VALORES do controlador, nunca o campo.",
-                  "// Quem controla quem só sai do FieldDefinition, na chamada 01.",
-                  "if (dependentes.length) {",
-                  "  console.log('  controllerValues de ' + dependentes[0] + ': ' + JSON.stringify(campos[dependentes[0]].controllerValues));",
-                  "}"
-                ]
-              }
-            }
-          ],
+          "name": "02 · Valores de picklist, por Record Type",
           "request": {
             "method": "GET",
             "header": [],
@@ -407,8 +281,21 @@
                 "{{recordTypeId}}"
               ]
             },
-            "description": "**260,4 KB · 1.224 ms** — a maior e mais lenta do fluxo.\n\nÉ a única chamada que permanece na UI API, por duas razões que não têm contorno:\n\n- **É a única fonte que respeita Record Type e devolve dependências.** `describe`, `FieldDefinition`, `EntityParticle` e `PicklistValueInfo` foram testados; nenhum entrega `validFor` por Record Type.\n- **É a única que não entra no composite.** O endpoint recusa recursos de `ui-api` com `INVALID_BATCH_REQUEST` — ver a pasta 04.\n\n### O que `controllerValues` é, e o que não é\n\nÉ um mapa `valor-do-controlador → índice`, e os índices são o que aparece em `Option.validFor`. Ele **não** diz qual campo é o controlador. Esse nome vem do `FieldDefinition`, na chamada 01.\n\n### Otimização conhecida, não aplicada\n\nExiste a versão por campo:\n\n```\n/ui-api/object-info/{obj}/picklist-values/{rtId}/{campo}\n```\n\nMedida em **0,4 a 1,3 KB** por campo, ~100 ms. Doze campos concorrentes trocariam 260 KB por ~12 KB. Está na pasta 04 para comparação."
-          }
+            "description": "Fica FORA do composite por imposição do Salesforce: o endpoint recusa recursos de ui-api com INVALID_BATCH_REQUEST. E não dá para substituir — é a única fonte que respeita Record Type e devolve as dependências (controllerValues / validFor).\n\nÉ também a chamada mais cara do fluxo. Ver a otimização por campo na pasta 04."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const v = pm.response.json().picklistFieldValues;",
+                  "console.log(Object.keys(v).length + ' picklists resolvidas');"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
