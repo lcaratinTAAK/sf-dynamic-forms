@@ -470,14 +470,20 @@ Três pontos de atenção para quem consumir:
 
 ### `/composite`, e não `/composite/batch`
 
-A escolha é medida, não estilística. O `/composite/batch` devolve query **cortada** — `done: false` com uma fração dos registros — junto de um status **200**. Mesmas consultas, mesma ordem:
+A escolha é medida, não estilística. O `/composite/batch` devolve query **cortada** — `done: false` com uma fração dos registros — junto de um status **200**.
 
-| endpoint | especificação | schema | tempo |
-| :---- | :---- | :---- | ----: |
-| `/composite/batch` | **1 de 38** | 397 de 397 | 499 ms |
-| `/composite` | 38 de 38 | 397 de 397 | 298 ms |
+As mesmas três consultas, nas duas ordens possíveis:
 
-Trinta e oito registros não chegam perto do limite de 2.000 do SOQL: o corte não vem do tamanho da consulta, vem do batch reduzindo o lote depois de já ter processado uma consulta grande. O sintoma seria um formulário sem seção nenhuma, sem erro.
+| endpoint | ordem | especificação | schema | tempo |
+| :---- | :---- | :---- | :---- | ----: |
+| `/composite/batch` | schema primeiro | **1 de 38** ⚠️ | 397 de 397 | 309 ms |
+| `/composite/batch` | especificação primeiro | 38 de 38 | 397 de 397 | 280 ms |
+| `/composite` | schema primeiro | 38 de 38 | 397 de 397 | 215 ms |
+| `/composite` | especificação primeiro | 38 de 38 | 397 de 397 | 196 ms |
+
+Trinta e oito registros não chegam perto do limite de 2.000 do SOQL: o corte não vem do tamanho da consulta, vem do batch reduzindo o lote depois de já ter processado uma consulta grande. **Reordenar esconde o problema, não resolve** — muda só qual consulta é sacrificada.
+
+O sintoma seria um formulário sem seção nenhuma, sem erro. O `/composite` não cortou em nenhuma ordem testada, e ainda é mais rápido.
 
 **Recomendação:** usar `/composite`, e ainda assim conferir `done` em toda subrequisição, refazendo fora do lote o que voltar cortado. Conferir custa uma comparação; não conferir custa uma falha invisível.
 
@@ -597,6 +603,32 @@ O Caso ainda não existe quando o cliente preenche, então os itens de lista nã
 
 🟡 **INSERIR PRINT — `inspetor-payload.png`**
 *Legenda sugerida: o payload montado antes do envio — os campos injetados pelo back-end, o campo oculto, e o filho referenciando `@{refPai.id}`.*
+
+## O custo total
+
+Medido com um formulário de 38 linhas de definição, contra um objeto `Case` com ~400 campos criáveis e ~90 Record Types ativos. Mediana de cinco execuções.
+
+| Quando | Chamada | Peso | Tempo |
+| :---- | :---- | ----: | ----: |
+| ao abrir, **uma vez** | `composite` — catálogo + Record Types | 20,2 KB | 190 ms |
+| por formulário | `composite` — especificação + dependentes + schema | 209,1 KB | 210 ms |
+| por formulário | `ui-api` — picklists | 260,4 KB | 1.035 ms |
+
+**Montar um formulário: 469,5 KB.** O tempo depende de como as duas chamadas são disparadas:
+
+| | Tempo |
+| :---- | ----: |
+| em sequência | 1.198 ms |
+| **em paralelo** | **952 ms** |
+
+O paralelismo só é possível porque o Id do Record Type foi resolvido na abertura — é a razão de a consulta de Record Types estar no passo 1 e não aqui.
+
+**Onde o custo realmente está:** 89% do peso é metadado do objeto, não do formulário. A definição inteira custa 48,7 KB; o schema dos campos custa 159,9 KB e as picklists 260,4 KB. Duas consequências práticas:
+
+* O **schema não muda entre formulários do mesmo objeto**. Guardá-lo em cache por sessão elimina 160 KB de toda troca no seletor.
+* As **picklists sozinhas são 55% do peso e 87% do tempo**. A versão por campo (ver acima) é a otimização de maior impacto disponível.
+
+Nenhuma das duas foi aplicada na prova de conceito.
 
 ## Campos gravados sem passar pelo formulário
 
