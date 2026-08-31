@@ -1,4 +1,4 @@
-# labs-sf-dynamic-forms
+# sf-dynamic-forms
 
 Formulários dinâmicos renderizados a partir da definição que vive no Salesforce.
 
