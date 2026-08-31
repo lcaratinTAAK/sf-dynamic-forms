@@ -35,14 +35,24 @@ Há **dois modos**, e basta um:
 
 | modo | quando usar | o que preencher |
 | :-- | :-- | :-- |
-| **Client Credentials** | é o modo representativo — o BFF autentica como aplicação | `SF_LOGIN_URL`, `SF_CLIENT_ID`, `SF_CLIENT_SECRET` |
-| **Token direto** | atalho para rodar antes de existir o External Client App | `SF_ACCESS_TOKEN`, `SF_INSTANCE_URL` |
+| **Client Credentials** | o normal — não expira e dispensa o CLI | `SF_LOGIN_URL`, `SF_CLIENT_ID`, `SF_CLIENT_SECRET` |
+| **Token direto** | atalho para quem já tem o CLI e a org autenticada | `SF_ACCESS_TOKEN`, `SF_INSTANCE_URL` |
 
-Se `SF_ACCESS_TOKEN` estiver preenchido, ele vence. Pegue um com:
+**Para rodar sem instalar nada**, use o Client Credentials: peça a chave e o
+segredo a quem administra a org e preencha as três variáveis. Elas não expiram,
+e não é preciso ter o CLI nem estar autenticado em coisa nenhuma. Chave e
+segredo são gerados **por org** e não vêm no metadata, então cada org tem o seu
+par. `SF_LOGIN_URL` é o My Domain da org — o mesmo host do `SF_INSTANCE_URL`.
+
+Se `SF_ACCESS_TOKEN` estiver preenchido ele **vence**; para usar Client
+Credentials, deixe essa variável vazia. Para pegar um token:
 
 ```bash
-sf org display --verbose --json -o <alias-da-org>
+sf org auth show-access-token --no-prompt --json -o <alias-da-org>
 ```
+
+O valor está em `result.accessToken`. Não use `sf org display`: ele redige o
+token e grava `[REDACTED]` no lugar.
 
 > **Uma armadilha que vale saber antes.** No modo Client Credentials, o Page
 > Layout devolvido pela UI API é resolvido pelo **profile do usuário "Run As"**
