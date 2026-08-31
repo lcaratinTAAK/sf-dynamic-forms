@@ -392,16 +392,9 @@ Uma requisição, duas consultas.
 }
 ```
 
-**Por que os Record Types vêm aqui, e não depois.** A chamada de picklists exige o **Id** do Record Type na URL. Se ele só for descoberto junto com a especificação, as duas chamadas do próximo passo ficam obrigatoriamente sequenciais. Resolvendo o Id na abertura, elas rodam **em paralelo**.
+**Por que os Record Types vêm aqui, e não depois.** A chamada de picklists exige o **Id** do Record Type na URL. Se ele só for descoberto junto com a especificação, as duas chamadas do próximo passo ficam obrigatoriamente sequenciais; resolvendo o Id na abertura, elas rodam **em paralelo**. Custa ~20 KB uma vez por sessão, e o resultado serve a todos os formulários.
 
-Duas alternativas foram consideradas:
-
-| Alternativa | Avaliação |
-| :---- | :---- |
-| Gravar o Id do Record Type como texto na tabela, no momento em que operação escolhe | **Não recomendado.** Id de Record Type muda entre orgs; o registro é dado e é migrado entre ambientes, então o Id chegaria morto em produção. É exatamente o problema que `DeveloperName` evita |
-| Trazer os Record Types na abertura e resolver o nome localmente | **Recomendado.** Custa uma consulta a mais numa chamada que já existe, e o resultado serve a todos os formulários da sessão |
-
-O custo é o volume de Record Types do objeto — em um `Case` com ~90 Record Types ativos, cerca de 20 KB, uma vez por sessão.
+A alternativa de **gravar o Id na tabela** — no momento em que operação escolhe o Record Type — foi descartada: Id de Record Type muda entre orgs, e o registro é dado migrado entre ambientes, então chegaria morto em produção. É o problema que `DeveloperName` existe para evitar.
 
 ## 2. Ao escolher — a definição do formulário
 
@@ -434,24 +427,16 @@ Todas as consultas SOQL desta RFC devolvem a mesma forma. Um exemplo real, abrev
     {
       "referenceId": "especificacao",
       "httpStatusCode": 200,
-      "httpHeaders": {},
       "body": {
         "totalSize": 38,
         "done": true,
         "records": [
           {
-            "attributes": {
-              "type": "SI_FormSpec__c",
-              "url": "/services/data/v66.0/sobjects/SI_FormSpec__c/a0x…"
-            },
-            "Id": "a0x…",
-            "Name": "Papel",
-            "RecordType": { "attributes": { … }, "DeveloperName": "Field" },
-            "Parent__c": "a0x…",
-            "Sort__c": 1,
-            "FieldApiName__c": "Type__c",
-            "IsRequired__c": false,
-            "Width__c": "FULL"
+            "attributes": { "type": "SI_FormSpec__c", "url": "/services/data/…/a0x…" },
+            "Id": "a0x…", "Name": "Papel",
+            "RecordType": { "DeveloperName": "Field" },
+            "Parent__c": "a0x…", "Sort__c": 1,
+            "FieldApiName__c": "Type__c", "IsRequired__c": false, "Width__c": "FULL"
           }
           // … demais linhas
         ]
@@ -468,26 +453,9 @@ Três pontos de atenção para quem consumir:
 * `httpStatusCode` é **por subrequisição**. Com `allOrNone: false`, uma que falha falha sozinha e as outras continuam válidas.
 * **`done: false` é resultado errado, não parcial** — ver abaixo.
 
-### `/composite`, e não `/composite/batch`
+**Use `/composite`, não `/composite/batch`.** O batch devolve query cortada — `done: false` com parte dos registros — junto de um status 200, e o sintoma é um formulário sem seção nenhuma, sem erro. O `/composite` não apresentou o problema em nenhum teste, e é mais rápido.
 
-A escolha é medida, não estilística. O `/composite/batch` devolve query **cortada** — `done: false` com uma fração dos registros — junto de um status **200**.
-
-As mesmas três consultas, nas duas ordens possíveis:
-
-| endpoint | ordem | especificação | schema | tempo |
-| :---- | :---- | :---- | :---- | ----: |
-| `/composite/batch` | schema primeiro | **1 de 38** ⚠️ | 397 de 397 | 309 ms |
-| `/composite/batch` | especificação primeiro | 38 de 38 | 397 de 397 | 280 ms |
-| `/composite` | schema primeiro | 38 de 38 | 397 de 397 | 215 ms |
-| `/composite` | especificação primeiro | 38 de 38 | 397 de 397 | 196 ms |
-
-Trinta e oito registros não chegam perto do limite de 2.000 do SOQL: o corte não vem do tamanho da consulta, vem do batch reduzindo o lote depois de já ter processado uma consulta grande. **Reordenar esconde o problema, não resolve** — muda só qual consulta é sacrificada.
-
-O sintoma seria um formulário sem seção nenhuma, sem erro. O `/composite` não cortou em nenhuma ordem testada, e ainda é mais rápido.
-
-**Recomendação:** usar `/composite`, e ainda assim conferir `done` em toda subrequisição, refazendo fora do lote o que voltar cortado. Conferir custa uma comparação; não conferir custa uma falha invisível.
-
-`allOrNone: false` nas leituras. Com `true`, uma falha derruba as demais com `PROCESSING_HALTED`.
+Ainda assim, **confira `done` em toda subrequisição** e refaça fora do lote o que voltar cortado. Conferir custa uma comparação; não conferir custa uma falha invisível.
 
 ## 3. Ao escolher — valores de picklist
 
@@ -495,7 +463,7 @@ O sintoma seria um formulário sem seção nenhuma, sem erro. O `/composite` nã
 
 É a única chamada que permanece na UI API, e a única que **não** entra em composite — o endpoint recusa recursos de `ui-api` com `INVALID_BATCH_REQUEST`.
 
-Ela permanece porque é a única fonte que respeita Record Type e devolve as dependências. `describe`, `FieldDefinition`, `EntityParticle` e `PicklistValueInfo` foram testados e nenhum atende.
+Ela permanece porque é a única fonte que respeita Record Type **e** devolve as dependências entre picklists. Não há substituto em SOQL.
 
 ### Forma do retorno
 
@@ -531,41 +499,13 @@ Ela permanece porque é a única fonte que respeita Record Type e devolve as dep
 
 `values` vazio para um campo significa que ele não tem valor válido naquele Record Type.
 
-### Otimização conhecida, não aplicada
-
-O mesmo endpoint aceita um campo no fim da URL:
-
-```
-GET /ui-api/object-info/Case/picklist-values/{rtId}/SI_BankType__c
-```
-
-O retorno completo do Record Type pode passar de 250 KB, enquanto por campo fica na casa de 1 KB. Para um formulário com ~12 picklists, são ~12 KB em requisições concorrentes contra 250 KB numa só. Vale avaliar; não foi aplicado na prova de conceito.
+O mesmo endpoint aceita **um campo no fim da URL** (`…/picklist-values/{rtId}/SI_BankType__c`), e aí o retorno cai de 250 KB para ~1 KB. Ver "O custo total".
 
 ## 4. Ao enviar
 
 **`POST /services/data/v66.0/composite`**, com `allOrNone: true`.
 
 O Caso ainda não existe quando o cliente preenche, então os itens de lista não têm o Id do pai para gravar. O composite resolve dentro da própria transação: o `referenceId` da primeira subrequisição vira `@{refPai.id}` nas seguintes.
-
-```
-  POST /composite  ·  allOrNone: true  ·  UMA transação
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │                                                                     │
-  │  ┌──────────────────────┐                ┌───────────────────────┐  │
-  │  │ referenceId: refPai  │ ─────────────▶ │ registroCriado · GET  │  │
-  │  │ POST /sobjects/Case  │                │ Id, CaseNumber, Status│  │
-  │  │ campos + backendF.   │                └───────────────────────┘  │
-  │  └──────────┬───────────┘                                           │
-  │             │            ┌────────────────────────────────────┐     │
-  │             ├──────────▶ │ item1 · POST CaseMember__c         │     │
-  │             │            │ Case__c: "@{refPai.id}"            │     │
-  │             │            └────────────────────────────────────┘     │
-  │             │            ┌────────────────────────────────────┐     │
-  │             └──────────▶ │ item2 · POST CaseMember__c         │     │
-  │                          │ Case__c: "@{refPai.id}"            │     │
-  │                          └────────────────────────────────────┘     │
-  └─────────────────────────────────────────────────────────────────────┘
-```
 
 ```jsonc
 {
@@ -606,7 +546,7 @@ O Caso ainda não existe quando o cliente preenche, então os itens de lista nã
 
 ## O custo total
 
-Medido com um formulário de 38 linhas de definição, contra um objeto `Case` com ~400 campos criáveis e ~90 Record Types ativos. Mediana de cinco execuções.
+Medido com um formulário de 38 linhas de definição, contra um `Case` com ~400 campos criáveis e ~90 Record Types ativos. Mediana de cinco execuções.
 
 | Quando | Chamada | Peso | Tempo |
 | :---- | :---- | ----: | ----: |
@@ -614,21 +554,12 @@ Medido com um formulário de 38 linhas de definição, contra um objeto `Case` c
 | por formulário | `composite` — especificação + dependentes + schema | 209,1 KB | 210 ms |
 | por formulário | `ui-api` — picklists | 260,4 KB | 1.035 ms |
 
-**Montar um formulário: 469,5 KB.** O tempo depende de como as duas chamadas são disparadas:
+Montar um formulário custa **469,5 KB**, e ~950 ms com as duas chamadas em paralelo — contra ~1.200 ms em sequência. É esse ganho que justifica resolver o Record Type na abertura.
 
-| | Tempo |
-| :---- | ----: |
-| em sequência | 1.198 ms |
-| **em paralelo** | **952 ms** |
+**Onde o custo está: 89% do peso é metadado do objeto, não do formulário.** A definição inteira custa 48,7 KB. Daí saem as duas otimizações de maior impacto, nenhuma aplicada na prova de conceito:
 
-O paralelismo só é possível porque o Id do Record Type foi resolvido na abertura — é a razão de a consulta de Record Types estar no passo 1 e não aqui.
-
-**Onde o custo realmente está:** 89% do peso é metadado do objeto, não do formulário. A definição inteira custa 48,7 KB; o schema dos campos custa 159,9 KB e as picklists 260,4 KB. Duas consequências práticas:
-
-* O **schema não muda entre formulários do mesmo objeto**. Guardá-lo em cache por sessão elimina 160 KB de toda troca no seletor.
-* As **picklists sozinhas são 55% do peso e 87% do tempo**. A versão por campo (ver acima) é a otimização de maior impacto disponível.
-
-Nenhuma das duas foi aplicada na prova de conceito.
+* O **schema não muda entre formulários do mesmo objeto** — cache por sessão elimina 160 KB de toda troca no seletor.
+* As **picklists são 55% do peso e 87% do tempo** — a versão por campo troca 260 KB por ~12 KB concorrentes.
 
 ## Campos gravados sem passar pelo formulário
 
@@ -653,41 +584,28 @@ A ideia é que os canais conheçam apenas esta forma, e a fonte da definição n
 {
   "object": "Case",
   "recordType": { "id": "012…", "developerName": "…", "label": "…" },
-  "sections": [
-    {
-      "id": "a0x…",
-      "label": "Identificação",
-      "repeating": false,
-      "visibility": { "logic": "ALL", "expression": null, "conditions": [] },
-      "fields": [
-        {
-          "kind": "field",              // field | attachment | content
-          "apiName": "SI_BankBranch__c",
-          "label": "Agência",
-          "dataType": "String",
-          "required": true,
-          "readOnly": false,
-          "hidden": false,
-          "defaultValue": null,
-          "helpText": null,
-          "maxLength": 10,
-          "width": "FULL",              // FULL | HALF | THIRD
-          "options": null,              // preenchido em picklists
-          "controllerField": null,      // picklist dependente
-          "visibility":   null,
-          "requiredWhen": null,
-          "validation":   null          // { message, logic, conditions }
-        }
-      ]
-    }
-  ],
+  "sections": [{
+    "id": "a0x…", "label": "Identificação", "repeating": false,
+    "visibility": null,                    // { logic, expression, conditions[] }
+    "fields": [{
+      "kind": "field",                     // field | attachment | content
+      "apiName": "SI_BankBranch__c",
+      "label": "Agência", "dataType": "String", "maxLength": 10,
+      "required": true, "readOnly": false, "hidden": false,
+      "defaultValue": null, "helpText": null, "width": "FULL",
+      "options": null,                     // preenchido em picklists
+      "controllerField": null,             // picklist dependente
+      "visibility": null, "requiredWhen": null,
+      "validation": null                   // { message, logic, conditions[] }
+    }]
+  }],
   "attachments": { "required": true, "minimumCount": 2, "documents": [] },
   "backendFields": { "RecordTypeId": "012…", "Type": "BankDataChange" },
-  "diagnostics": { "calls": [], "warnings": [] }
+  "diagnostics": { "warnings": [] }
 }
 ```
 
-Uma seção com `repeating: true` carrega `childObject` e `childRelationshipField`; cada item vira um registro filho.
+Seção com `repeating: true` carrega `childObject` e `childRelationshipField`; cada item vira um registro filho.
 
 Três características que valem preservar em qualquer formato escolhido:
 
@@ -728,7 +646,7 @@ Quatro fontes de definição foram implementadas e comparadas.
 | :---- | :---- | :---- |
 | **Page Layout** (UI API) | `ui-api/layout` | O layout não modela condição nem anexo. Exigiu dois objetos de apoio, e o layout devolvido depende do *profile* do usuário autenticado — o formulário sai diferente sem nada acusar |
 | **`record-defaults/create`** | UI API | Devolve o objeto inteiro para montar um formulário de 15 campos. Mais dado, menos controle |
-| **Screen Flow** | Tooling API | Visibilidade e anexo nativos, mas **não** aceita obrigatoriedade em campo vinculado ao objeto: `isRequired` e `validationRule` são recusados em `ObjectProvided`, e o componente que os aceita não vincula a campo nenhum. Verificado em 20 flows ativos: zero `InputField` com `objectFieldReference`, em 57 encontrados. Além disso, ler Flow pela Tooling exige três permissões de Setup, e com elas o usuário de integração passa a enxergar todos os flows da org |
+| **Screen Flow** | Tooling API | Visibilidade e anexo nativos, mas **não** aceita obrigatoriedade em campo vinculado ao objeto — os dois recursos são mutuamente exclusivos no metadado do Flow. Ler Flow pela Tooling também exige três permissões de Setup, e com elas o usuário de integração enxerga todos os flows da org |
 | **Objeto customizado** | `SI_FormSpec__c` | **A proposta.** Nada é nativo — tudo foi construído — mas nada esbarra em limite de estrutura alheia |
 
 O que decidiu foi o item da obrigatoriedade condicional: é requisito do corpus, e é o único ponto sem contorno no Screen Flow.
