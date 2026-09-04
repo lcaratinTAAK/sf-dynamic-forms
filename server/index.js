@@ -98,11 +98,11 @@ app.get('/api/forms', async (req, res) => {
   try {
     const source = req.query.source ? String(req.query.source) : null;
 
-    // A fonte custom tem catálogo próprio: as linhas raiz de SI_FormSpec__c.
+    // A fonte custom tem catálogo próprio: as linhas raiz de FormDefinition__c.
     // Uma SOQL, sem composite — não há flow nem Record Type para resolver.
     if (source === 'FORM_SPEC') {
       const forms = await formspec.listarFormularios();
-      return ok(res, { object: config.objectApiName, via: 'SOQL em SI_FormSpec__c', forms, warnings: [] });
+      return ok(res, { object: config.objectApiName, via: 'SOQL em FormDefinition__c', forms, warnings: [] });
     }
 
     const { forms, warnings } = await discoverFormCatalog({
@@ -185,7 +185,7 @@ app.get('/api/form', async (req, res) => {
       // especificação diz antes de usar — ver `buildContract`.
       contract = await formspec.buildContract({
         formId,
-        objectApiName: config.objectApiName,
+        objectApiName: req.query.objectApiName || config.objectApiName,
         recordTypeDevName: req.query.recordTypeDevName || null,
       });
     } else {
@@ -215,7 +215,7 @@ app.post('/api/traduzir', (req, res) => {
     req.body || {};
 
   if (!Array.isArray(spec) || spec.length === 0) {
-    return res.status(400).json({ error: 'Informe `spec`: as linhas de SI_FormSpec__c.' });
+    return res.status(400).json({ error: 'Informe `spec`: as linhas de FormDefinition__c.' });
   }
 
   const raiz =

@@ -1,5 +1,5 @@
 import Field from './Field.jsx';
-import { CENARIOS, suportaDemo } from '../demoData.js';
+import { cenariosPara, suportaDemo } from '../demoData.js';
 // O MESMO avaliador que o servidor usa. Um módulo puro, sem I/O.
 import { isVisible, validar } from '../../../server/contract.js';
 
@@ -224,7 +224,7 @@ export default function FormRenderer({
       {suportaDemo(contract) && (
         <div className="demo-fill">
           <span className="demo-fill-label">Dados de teste</span>
-          {CENARIOS.map((c) => (
+          {cenariosPara(contract).map((c) => (
             <button key={c.id} className="btn ghost small" onClick={() => onFill(c)}>
               {c.label}
             </button>

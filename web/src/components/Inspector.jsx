@@ -71,9 +71,9 @@ function Calls({ contract }) {
           <div className="help">
             {fd.source === 'FORM_SPEC' ? (
               <>
-                É a linha raiz de <code>SI_FormSpec__c</code> — a de Record Type{' '}
+                É a linha raiz de <code>FormDefinition__c</code> — a de Record Type{' '}
                 <code>Form</code> — que amarra o formulário ao Record Type de destino e ao
-                Type do Caso. Na fonte custom o catálogo e a definição são a mesma tabela.
+                Tipo do registro. Na fonte custom o catálogo e a definição são a mesma tabela.
               </>
             ) : (
               <>
@@ -298,11 +298,7 @@ function Payload({ contract, result, createResult, creating, onCreate }) {
           {contract?.formDefinition ? (
             <>
               , a partir de{' '}
-              <code>
-                {contract.formDefinition.source === 'FORM_SPEC'
-                  ? 'SI_FormSpec__c'
-                  : 'FormDefinition__c'}
-              </code>{' '}
+              <code>FormDefinition__c</code>{' '}
               — “{contract.formDefinition.label}”
             </>
           ) : null}
@@ -339,7 +335,7 @@ function Payload({ contract, result, createResult, creating, onCreate }) {
 
       <div className="create-bar">
         <button className="btn" disabled={!result.valid || creating} onClick={onCreate}>
-          {creating ? 'Criando…' : 'Criar caso no Salesforce'}
+          {creating ? 'Criando…' : 'Criar registro no Salesforce'}
         </button>
         <span className="help">
           {result.valid
@@ -357,7 +353,7 @@ function CreateResult({ result }) {
   if (!result.ok) {
     return (
       <div className="note err create-result">
-        <strong>Não foi possível criar o caso.</strong>
+        <strong>Não foi possível criar o registro.</strong>
         <div>{result.error}</div>
         {result.errorCode && <div className="hidden-list">código: {result.errorCode}</div>}
         {result.fields?.length > 0 && (
@@ -374,14 +370,19 @@ function CreateResult({ result }) {
 
   return (
     <div className="note ok create-result">
-      <strong>Caso criado no Salesforce.</strong>
+      <strong>Registro criado no Salesforce.</strong>
       <dl className="created">
-        {rec.CaseNumber && (
+        {rec.CaseNumber ? (
           <>
             <dt>Número</dt>
             <dd>{rec.CaseNumber}</dd>
           </>
-        )}
+        ) : rec.Name ? (
+          <>
+            <dt>Nome</dt>
+            <dd>{rec.Name}</dd>
+          </>
+        ) : null}
         <dt>Id</dt>
         <dd className="mono">{result.id}</dd>
         {rec.Status && (

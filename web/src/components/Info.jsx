@@ -77,7 +77,7 @@ const REQUISITOS = [
     },
     flow: {
       nivel: CONSTRUIDO,
-      via: 'FormDefinition__c.CaseType__c',
+      via: 'FormDefinition__c.TypeFieldApiName__c/TypeValue__c',
       texto:
         'O BFF injeta Type no payload sem renderizar campo nenhum. Verificado ponta a ponta: o caso 00001021 nasceu com Type = BankDataChange.',
     },

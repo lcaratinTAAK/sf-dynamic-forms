@@ -9,7 +9,7 @@ const SOURCES = [
   { id: 'uiapi', label: 'UI API', hint: 'object-info + layout + picklists + regras' },
   { id: 'uiapi-v2', label: 'UI API v2', hint: 'descoberta por SOQL + record-defaults' },
   { id: 'screenflow', label: 'Screen Flow', hint: 'Tooling API' },
-  { id: 'formspec', label: 'Custom', hint: 'SI_FormSpec__c — definição própria, uma SOQL' },
+  { id: 'formspec', label: 'Custom', hint: 'FormDefinition__c — definição própria, uma SOQL' },
 ];
 
 const usaRecordType = (source) => source === 'uiapi' || source === 'uiapi-v2';
@@ -57,7 +57,7 @@ export default function App() {
         if (!r.forms.length) {
           setError(
             source === 'formspec'
-              ? 'Nenhum formulário ativo em SI_FormSpec__c.'
+              ? 'Nenhum formulário ativo em FormDefinition__c.'
               : 'Nenhum formulário ativo em FormDefinition__c com Source = SCREEN_FLOW.'
           );
         }
@@ -103,6 +103,7 @@ export default function App() {
         recordTypeId: usaRecordType(source) ? recordTypeId : undefined,
         formId: usaCatalogo(source) ? formId : undefined,
         recordTypeDevName: source === 'formspec' ? escolhido?.recordTypeDevName : undefined,
+        objectApiName: source === 'formspec' ? escolhido?.objectApiName : undefined,
       })
       .then((c) => {
         setContract(c);
@@ -217,12 +218,13 @@ export default function App() {
             <div className="control">
               <label htmlFor="form">
                 Formulário
-                <span className="badge">{source === 'formspec' ? 'SI_FormSpec__c' : 'FormDefinition__c'}</span>
+                <span className="badge">FormDefinition__c</span>
               </label>
               <select id="form" value={formId} onChange={(e) => setFormId(e.target.value)}>
                 {forms.map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.label}
+                    {f.version ? ` (v${f.version}${f.status ? ` · ${f.status}` : ''})` : ''}
                     {f.channel ? ` · ${f.channel}` : ''}
                     {f.problems?.length ? ' ⚠' : ''}
                   </option>

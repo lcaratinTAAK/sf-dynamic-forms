@@ -172,6 +172,14 @@ export async function createRecordComposite(objectApiName, payload) {
     : (payload?.request?.body ?? payload);
   const itens = payload?.listas ?? [];
 
+  const CAMPOS_LEITURA = {
+    Case: 'Id,CaseNumber,Status,CreatedDate',
+    Contract: 'Id,ContractNumber,Status,CreatedDate',
+    Account: 'Id,Name,CreatedDate',
+    FormSpec__c: 'Id,Name,CreatedDate',
+  };
+  const campos = CAMPOS_LEITURA[objectApiName] ?? 'Id,Name,CreatedDate';
+
   const compositeRequest = [
     {
       method: 'POST',
@@ -187,7 +195,7 @@ export async function createRecordComposite(objectApiName, payload) {
     })),
     {
       method: 'GET',
-      url: `/services/data/${version}/sobjects/${objectApiName}/@{${REF_PAI}.id}?fields=Id,CaseNumber,Status,CreatedDate`,
+      url: `/services/data/${version}/sobjects/${objectApiName}/@{${REF_PAI}.id}?fields=${campos}`,
       referenceId: 'registroCriado',
     },
   ];
@@ -551,7 +559,7 @@ const NOME_API = /^[A-Za-z0-9_]{1,80}$/;
  *
  *   1. EntityParticle    schema dos campos: tipo, label, tamanho, ajuda
  *   2. FieldDefinition   quem controla cada picklist dependente
- *   3. SI_FormSpec__c    a especificação inteira do formulário escolhido
+ *   3. FormDefinition__c a especificação inteira do formulário escolhido
  *   4. RecordType        o Id do Record Type de destino          (opcional)
  *
  * O schema troca `ui-api/object-info` por SOQL: o object-info devolve TODOS os

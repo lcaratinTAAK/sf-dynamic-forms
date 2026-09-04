@@ -25,7 +25,7 @@ import '../info-custom.css';
  */
 const CHAMADA_INICIAL = {
   metodo: 'GET',
-  rota: "/query?q=SELECT … FROM SI_FormSpec__c WHERE RecordType.DeveloperName = 'Form'",
+  rota: "/query?q=SELECT … FROM FormDefinition__c WHERE RecordType.DeveloperName = 'Form'",
   peso: '0,3 KB',
   paraQue:
     'O catálogo: quais formulários existem e, para cada um, o objeto, o Record Type de destino, o Type do Caso e o canal. É ele que alimenta o seletor — e é dele que sai o DeveloperName que a chamada 01 recebe pronto.',
@@ -52,7 +52,7 @@ const CHAMADAS = [
     paraQue:
       'Trazer de uma vez a árvore do formulário, o Record Type onde o Caso vai nascer, quem controla cada picklist dependente e o metadado de todo campo do objeto — rótulo, tipo, tamanho, texto de ajuda e obrigatoriedade.',
     detalhe: [
-      ['SI_FormSpec__c', 'a especificação: 38 linhas, WHERE (Id = :formId OR Form__c = :formId)', '48,7 KB'],
+      ['FormDefinition__c', 'a especificação: 38 linhas, WHERE (Id = :formId OR Form__c = :formId)', '48,7 KB'],
       ['RecordType', 'DeveloperName → Id', '0,3 KB'],
       ['FieldDefinition', 'picklist dependente → quem a controla', '0,3 KB'],
       ['EntityParticle', 'schema dos 397 campos criáveis de Case', '159,9 KB'],
@@ -80,7 +80,7 @@ const CHAMADAS = [
   },
 ];
 
-/** Os seis papéis de linha em SI_FormSpec__c, discriminados por Record Type. */
+/** Os seis papéis de linha em FormDefinition__c, discriminados por Record Type. */
 const PAPEIS = [
   {
     rt: 'Form',
@@ -157,7 +157,7 @@ const TIPO_CONTRATO = [
     "'FORM_SPEC'",
     'Qual adaptador produziu. O consumidor não deveria precisar olhar — existe para diagnóstico.',
   ],
-  ['object', 'string', 'API name do objeto que o formulário cria. Hoje sempre Case.'],
+  ['object', 'string', 'API name do objeto que o formulário cria: Case, Contract, Account ou FormSpec__c.'],
   [
     'recordType',
     'RecordType | null',
@@ -191,7 +191,7 @@ const TIPO_CONTRATO = [
 ];
 
 const TIPO_SECTION = [
-  ['id', 'string', 'Id do registro em SI_FormSpec__c. Estável entre carregamentos.'],
+  ['id', 'string', 'Id do registro em FormDefinition__c. Estável entre carregamentos.'],
   [
     'label',
     'string | null',
@@ -398,7 +398,7 @@ function Abertura() {
       </p>
       <p>
         Aqui a estrutura existe <strong>para ser formulário</strong>. É um objeto customizado,{' '}
-        <code>SI_FormSpec__c</code>, com Record Type dizendo o que cada linha é. Isso muda três
+        <code>FormDefinition__c</code>, com Record Type dizendo o que cada linha é. Isso muda três
         coisas de uma vez:
       </p>
       <div className="cartoes">
@@ -439,7 +439,7 @@ function Modelo() {
   return (
     <Secao titulo="Uma tabela, sete papéis" chapeu="O modelo">
       <p>
-        Tudo vive em <code>SI_FormSpec__c</code>. O Record Type discrimina o papel da linha, e{' '}
+        Tudo vive em <code>FormDefinition__c</code>. O Record Type discrimina o papel da linha, e{' '}
         <code>Parent__c</code> monta a árvore. <code>Form__c</code> aponta sempre para a raiz — é
         essa redundância que faz a consulta caber em um nível.
       </p>
@@ -545,7 +545,7 @@ function Modelo() {
 function Arquitetura() {
   const CANAIS = ['Magic Link', 'Site / App', 'Bot'];
   const FONTES = [
-    ['SI_FormSpec__c', 'a definição'],
+    ['FormDefinition__c', 'a definição'],
     ['RecordType', 'o Id do destino'],
     ['EntityParticle', 'o schema dos campos'],
     ['ui-api picklists', 'valores por Record Type'],

@@ -19,12 +19,13 @@ export const getForms = (source) => get(`/api/forms?source=${encodeURIComponent(
  * É palpite — o servidor confere contra a especificação antes de usar — então
  * omitir custa uma chamada a mais, nunca um formulário errado.
  */
-export function getForm({ source, recordTypeId, flowId, formId, recordTypeDevName }) {
+export function getForm({ source, recordTypeId, flowId, formId, recordTypeDevName, objectApiName }) {
   const qs = new URLSearchParams({ source });
   if (formId) qs.set('formId', formId);
   if (recordTypeId) qs.set('recordTypeId', recordTypeId);
   if (flowId) qs.set('flowId', flowId);
   if (recordTypeDevName) qs.set('recordTypeDevName', recordTypeDevName);
+  if (objectApiName) qs.set('objectApiName', objectApiName);
   return get(`/api/form?${qs}`);
 }
 

@@ -16,9 +16,9 @@ const attrs = (tipo, id) => ({
   url: `/services/data/v66.0/sobjects/${tipo}/${id}`,
 });
 
-/** Linha de SI_FormSpec__c com os defaults que o objeto sempre devolve. */
+/** Linha de FormDefinition__c com os defaults que o objeto sempre devolve. */
 const linha = (id, rt, campos) => ({
-  attributes: attrs('SI_FormSpec__c', id),
+  attributes: attrs('FormDefinition__c', id),
   Id: id,
   RecordType: { attributes: attrs('RecordType', '012xx'), DeveloperName: rt },
   Form__c: id === 'a0xFORM' ? null : 'a0xFORM',
@@ -71,13 +71,6 @@ export const EXEMPLO = {
       IsDependentPicklist: true,
     }),
     particula('EffectiveDate__c', 'A partir de quando vale', 'date'),
-    // Campos do objeto FILHO da lista repetível. A tradução não precisa saber
-    // de que objeto vieram — é o `childObject` da seção que decide onde gravam.
-    particula('Name', 'Nome completo', 'string', {
-      Length: 80,
-      IsNillable: false,
-    }),
-    particula('Type__c', 'Papel', 'picklist'),
   ],
 
   // ─── chamada 01, subrequisição 2: FieldDefinition ─────────────────────────
@@ -118,9 +111,12 @@ export const EXEMPLO = {
       Name: 'Alteração de dados bancários',
       PublicLabel__c: 'Alteração de dados bancários',
       Description__c: 'Use este formulário para alterar a conta que recebe os repasses.',
-      ObjectApiName__c: 'Case',
+      ObjectApiName__c: 'FormSpec__c',
       TargetRecordTypeDevName__c: 'SI_Demo_BankDataChange',
-      CaseType__c: 'BankDataChange',
+      TypeFieldApiName__c: 'Type__c',
+      TypeValue__c: 'BankDataChange',
+      PriorityFieldApiName__c: 'Priority__c',
+      PriorityValue__c: 'Medium',
       Channel__c: 'ONLINE',
     }),
 
@@ -169,33 +165,6 @@ export const EXEMPLO = {
       Operator__c: 'EQUALS',
       Value__c: 'Parceiro',
       Effect__c: 'REQUIRE',
-    }),
-
-    // Lista repetível: cada item vira um registro de OUTRO objeto.
-    linha('a0xLISTA', 'RepeatingSection', {
-      Name: 'Quem mais assina a conta',
-      Sort__c: 3,
-      ChildObjectApiName__c: 'CaseMember__c',
-      ChildRelationshipField__c: 'Case__c',
-      ItemLabel__c: 'Titular',
-      AddButtonText__c: 'Mais alguém assina a conta?',
-      MinItems__c: 0,
-      MaxItems__c: 4,
-    }),
-    linha('a0xF4', 'Field', {
-      Name: 'Papel',
-      Parent__c: 'a0xLISTA',
-      Sort__c: 1,
-      FieldApiName__c: 'Type__c',
-      IsHidden__c: true,
-      DefaultValue__c: 'Landlord',
-    }),
-    linha('a0xF5', 'Field', {
-      Name: 'Nome do titular',
-      Parent__c: 'a0xLISTA',
-      Sort__c: 2,
-      FieldApiName__c: 'Name',
-      IsRequired__c: true,
     }),
 
     linha('a0xSEC3', 'Section', { Name: 'Nova conta', Sort__c: 4 }),

@@ -22,7 +22,7 @@
  *   }],
  *   attachments: { required, minimumCount, documents: [{ code, label }], component },
  *   backendFields: { [apiName]: value },   // gravados pelo BFF, nunca renderizados
- *   formDefinition: { id, label, source, channel } | null,
+ *   formDefinition: { id, key, version, status, versionKey, label, source, channel, description } | null,
  *   diagnostics: { calls: [...], warnings: [...] }
  * }
  *
@@ -65,7 +65,18 @@ export function backendFieldsFromForm(form) {
   if (!form) return {};
   const out = {};
   if (form.recordType?.id) out.RecordTypeId = form.recordType.id;
-  if (form.caseType) out.Type = form.caseType;
+
+  if (form.typeFieldApiName && form.typeValue) {
+    out[form.typeFieldApiName] = form.typeValue;
+  } else if (form.caseType) {
+    // legado: screenflow.js ainda chama esta função com o shape antigo
+    // (FormDefinition__c.CaseType__c) — não remova este ramo.
+    out.Type = form.caseType;
+  }
+
+  if (form.priorityFieldApiName && form.priorityValue) {
+    out[form.priorityFieldApiName] = form.priorityValue;
+  }
   return out;
 }
 

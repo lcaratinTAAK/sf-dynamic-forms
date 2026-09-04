@@ -1,5 +1,5 @@
 /**
- * ADAPTADOR 4 — SI_FormSpec__c, definição 100% custom.
+ * ADAPTADOR 4 — FormDefinition__c, definição 100% custom.
  *
  * As três fontes anteriores leem uma estrutura que o Salesforce mantém para
  * OUTRO propósito — Page Layout existe para a tela interna, Screen Flow para
@@ -10,7 +10,7 @@
  * Aqui a estrutura existe para ser formulário. Uma tabela só, com Record Type
  * dizendo o que cada linha é:
  *
- *   Form        a raiz — objeto e Record Type de destino, canal, Type do Caso
+ *   Form        a raiz — objeto e Record Type de destino, canal, Tipo do registro
  *   Section     agrupamento, com visibilidade própria
  *   Field       campo, vinculado a um campo do SObject
  *   Attachment  documento exigido, tratado como componente
@@ -44,25 +44,30 @@ import {
   normalizeOperator,
   backendFieldsFromForm,
 } from '../contract.js';
+import { config } from '../config.js';
 
-const OBJ = 'SI_FormSpec__c';
+const OBJ = config.formsObject || 'FormDefinition__c';
 
-const CAMPOS = `Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Page__c, Width__c,
-  ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c, PublicLabel__c, Description__c,
+const CAMPOS = `Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Width__c,
+  ObjectApiName__c, TargetRecordTypeDevName__c,
+  FormKey__c, Version__c, Status__c, VersionKey__c,
+  TypeFieldApiName__c, TypeValue__c, PriorityFieldApiName__c, PriorityValue__c, QueueDeveloperName__c,
+  Channel__c, PublicLabel__c, Description__c,
   FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c,
   IsRequired__c, IsReadOnly__c,
   DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c,
   ConditionFieldApiName__c, Operator__c, Value__c, Effect__c,
   FilterLogicType__c, FilterLogic__c,
-  Body__c, IsRepeating__c, ItemLabel__c, AddButtonText__c,
+  Body__c, ItemLabel__c, AddButtonText__c,
   Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c,
   ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c`.replace(/\s+/g, ' ');
 
 /** Catálogo: só as linhas raiz. Uma query. */
 export const queryCatalogo = () =>
   `SELECT Id, Name, PublicLabel__c, Description__c, ObjectApiName__c, TargetRecordTypeDevName__c, ` +
-  `CaseType__c, Channel__c FROM ${OBJ} ` +
-  `WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name`;
+  `FormKey__c, Version__c, Status__c, VersionKey__c, ` +
+  `TypeFieldApiName__c, TypeValue__c, PriorityFieldApiName__c, PriorityValue__c, Channel__c ` +
+  `FROM ${OBJ} WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name`;
 
 /**
  * A especificação inteira.
@@ -81,11 +86,18 @@ export async function listarFormularios() {
   const r = await soql(queryCatalogo());
   return (r.records || []).map((f) => ({
     id: f.Id,
+    key: f.FormKey__c ?? null,
+    version: f.Version__c ?? null,
+    status: f.Status__c ?? null,
+    versionKey: f.VersionKey__c ?? null,
     label: f.PublicLabel__c || f.Name,
     description: f.Description__c ?? null,
     objectApiName: f.ObjectApiName__c,
     recordTypeDevName: f.TargetRecordTypeDevName__c,
-    caseType: f.CaseType__c ?? null,
+    typeFieldApiName: f.TypeFieldApiName__c ?? null,
+    typeValue: f.TypeValue__c ?? null,
+    priorityFieldApiName: f.PriorityFieldApiName__c ?? null,
+    priorityValue: f.PriorityValue__c ?? null,
     channel: f.Channel__c ?? null,
   }));
 }
@@ -124,6 +136,12 @@ export async function buildContract({ formId, objectApiName, recordTypeDevName =
 
   const objeto = raiz.ObjectApiName__c || objectApiName;
   const esperado = raiz.TargetRecordTypeDevName__c;
+
+  if (raiz.ObjectApiName__c && objectApiName && raiz.ObjectApiName__c !== objectApiName) {
+    avisos.push(
+      `ObjectApiName__c da especificação ("${raiz.ObjectApiName__c}") diverge do palpite usado para o schema ("${objectApiName}"); campos exibidos podem vir do objeto errado. Catálogo desatualizado no cliente?`
+    );
+  }
 
   if (pacote.palpiteRecusado) {
     avisos.push('recordTypeDevName recebido em formato inválido; ignorado e resolvido pela especificação.');
@@ -183,7 +201,7 @@ export async function buildContract({ formId, objectApiName, recordTypeDevName =
 }
 
 /**
- * Tradução pura: linhas de SI_FormSpec__c -> contrato. Sem I/O, testável offline.
+ * Tradução pura: linhas de FormDefinition__c -> contrato. Sem I/O, testável offline.
  */
 export function specToContract(linhas, { formId, objectApiName, indiceDeCampos, controladorDe = {}, picklists, rt }) {
   const contract = emptyContract('FORM_SPEC', objectApiName);
@@ -196,6 +214,10 @@ export function specToContract(linhas, { formId, objectApiName, indiceDeCampos, 
 
   contract.formDefinition = {
     id: raiz.Id,
+    key: raiz.FormKey__c ?? null,
+    version: raiz.Version__c ?? null,
+    status: raiz.Status__c ?? null,
+    versionKey: raiz.VersionKey__c ?? null,
     label: raiz.PublicLabel__c || raiz.Name,
     source: 'FORM_SPEC',
     channel: raiz.Channel__c ?? null,
@@ -204,7 +226,10 @@ export function specToContract(linhas, { formId, objectApiName, indiceDeCampos, 
 
   contract.backendFields = backendFieldsFromForm({
     recordType: contract.recordType,
-    caseType: raiz.CaseType__c,
+    typeFieldApiName: raiz.TypeFieldApiName__c,
+    typeValue: raiz.TypeValue__c,
+    priorityFieldApiName: raiz.PriorityFieldApiName__c,
+    priorityValue: raiz.PriorityValue__c,
   });
 
   if (!rt) {
