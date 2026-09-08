@@ -51,7 +51,8 @@ const OBJ = config.formsObject || 'FormDefinition__c';
 const CAMPOS = `Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Width__c,
   ObjectApiName__c, TargetRecordTypeDevName__c,
   FormKey__c, Version__c, Status__c, VersionKey__c,
-  TypeFieldApiName__c, TypeValue__c, PriorityFieldApiName__c, PriorityValue__c, QueueDeveloperName__c,
+  TypeFieldApiName__c, TypeValue__c, PriorityFieldApiName__c, PriorityValue__c,
+  VersionFieldApiName__c, QueueDeveloperName__c,
   Channel__c, PublicLabel__c, Description__c,
   FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c,
   IsRequired__c, IsReadOnly__c,
@@ -66,7 +67,8 @@ const CAMPOS = `Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c,
 export const queryCatalogo = () =>
   `SELECT Id, Name, PublicLabel__c, Description__c, ObjectApiName__c, TargetRecordTypeDevName__c, ` +
   `FormKey__c, Version__c, Status__c, VersionKey__c, ` +
-  `TypeFieldApiName__c, TypeValue__c, PriorityFieldApiName__c, PriorityValue__c, Channel__c ` +
+  `TypeFieldApiName__c, TypeValue__c, PriorityFieldApiName__c, PriorityValue__c, ` +
+  `VersionFieldApiName__c, Channel__c ` +
   `FROM ${OBJ} WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name`;
 
 /**
@@ -98,6 +100,7 @@ export async function listarFormularios() {
     typeValue: f.TypeValue__c ?? null,
     priorityFieldApiName: f.PriorityFieldApiName__c ?? null,
     priorityValue: f.PriorityValue__c ?? null,
+    versionFieldApiName: f.VersionFieldApiName__c ?? null,
     channel: f.Channel__c ?? null,
   }));
 }
@@ -230,6 +233,8 @@ export function specToContract(linhas, { formId, objectApiName, indiceDeCampos, 
     typeValue: raiz.TypeValue__c,
     priorityFieldApiName: raiz.PriorityFieldApiName__c,
     priorityValue: raiz.PriorityValue__c,
+    versionFieldApiName: raiz.VersionFieldApiName__c,
+    version: raiz.Version__c,
   });
 
   if (!rt) {

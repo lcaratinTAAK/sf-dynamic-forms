@@ -77,6 +77,13 @@ export function backendFieldsFromForm(form) {
   if (form.priorityFieldApiName && form.priorityValue) {
     out[form.priorityFieldApiName] = form.priorityValue;
   }
+
+  // Sem par de valor, ao contrário de Tipo/Prioridade: o valor é sempre a
+  // versão ATIVA do próprio formulário (FormDefinition__c.Version__c da raiz
+  // lida), nunca uma escolha do configurador.
+  if (form.versionFieldApiName && form.version != null) {
+    out[form.versionFieldApiName] = String(form.version);
+  }
   return out;
 }
 
