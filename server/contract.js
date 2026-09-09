@@ -212,16 +212,24 @@ export function applyPicklistValues(field, picklistPayload) {
   const entry = picklistPayload?.picklistFieldValues?.[field.apiName];
   if (!entry) return field;
 
+  const options = (entry.values || []).map((v) => ({
+    value: v.value,
+    label: v.label,
+    validFor: v.validFor || [],
+  }));
+
   return {
     ...field,
-    options: (entry.values || []).map((v) => ({
-      value: v.value,
-      label: v.label,
-      validFor: v.validFor || [],
-    })),
+    options,
     // controllerValues mapeia valor-do-controlador -> índice usado em validFor
     controllerValues: entry.controllerValues || null,
     controllerField: field.controllerField ?? null,
+    // Defesa contra o EntityParticle ter descrito o objeto errado (ou
+    // simplesmente não conhecer o campo): se a UI API devolveu opções de
+    // picklist válidas pra este Record Type, o campo É um picklist,
+    // independente do que `dataType` tenha vindo do schema.
+    dataType:
+      options.length > 0 && field.dataType !== 'MultiPicklist' ? 'Picklist' : field.dataType,
   };
 }
 

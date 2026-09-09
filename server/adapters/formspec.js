@@ -118,7 +118,7 @@ export async function buildContract({ formId, objectApiName, recordTypeDevName =
   //    retorno da especificação, e as subrequisições do lote são independentes
   //    — era isso que obrigava a duas chamadas separadas.
   const q = querySpec(formId);
-  const pacote = await schemaEFormulario(objectApiName, {
+  let pacote = await schemaEFormulario(objectApiName, {
     specSoql: q,
     recordTypeDevName,
   });
@@ -130,9 +130,9 @@ export async function buildContract({ formId, objectApiName, recordTypeDevName =
     { replayId: `pacote:${objectApiName}:${formId}:${recordTypeDevName ?? ''}`, method: 'POST' }
   );
 
-  const indiceDeCampos = indexarCampos(pacote.campos);
-  const controladorDe = pacote.controladorDe ?? {};
-  const linhas = pacote.spec;
+  let indiceDeCampos = indexarCampos(pacote.campos);
+  let controladorDe = pacote.controladorDe ?? {};
+  let linhas = pacote.spec;
 
   const raiz = linhas.find((r) => r.Id === formId);
   if (!raiz) throw new Error(`Formulário ${formId} não encontrado em ${OBJ}.`);
@@ -142,8 +142,25 @@ export async function buildContract({ formId, objectApiName, recordTypeDevName =
 
   if (raiz.ObjectApiName__c && objectApiName && raiz.ObjectApiName__c !== objectApiName) {
     avisos.push(
-      `ObjectApiName__c da especificação ("${raiz.ObjectApiName__c}") diverge do palpite usado para o schema ("${objectApiName}"); campos exibidos podem vir do objeto errado. Catálogo desatualizado no cliente?`
+      `ObjectApiName__c da especificação ("${raiz.ObjectApiName__c}") diverge do palpite usado para o schema ("${objectApiName}"); refazendo o schema com o objeto correto. Catálogo desatualizado no cliente?`
     );
+
+    // O schema já buscado descreveu o objeto ERRADO: campos como picklist
+    // não são encontrados no EntityParticle daquele objeto e ficam com o
+    // tipo default (String), virando texto simples na UI sem erro nenhum.
+    // A especificação é sempre quem manda no objeto de destino, então vale a
+    // viagem extra — só acontece quando o palpite do cliente já veio errado.
+    track(
+      'Refazendo metadado dos campos — objeto divergia do palpite',
+      `/composite → EntityParticle + FieldDefinition (${objeto}) + ${OBJ}` +
+        (recordTypeDevName ? ' + RecordType' : ''),
+      { replayId: `pacote:${objeto}:${formId}:${recordTypeDevName ?? ''}`, method: 'POST' }
+    );
+
+    pacote = await schemaEFormulario(objeto, { specSoql: q, recordTypeDevName });
+    indiceDeCampos = indexarCampos(pacote.campos);
+    controladorDe = pacote.controladorDe ?? {};
+    linhas = pacote.spec;
   }
 
   if (pacote.palpiteRecusado) {
