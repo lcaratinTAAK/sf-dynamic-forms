@@ -176,7 +176,7 @@ export async function createRecordComposite(objectApiName, payload) {
     Case: 'Id,CaseNumber,Status,CreatedDate',
     Contract: 'Id,ContractNumber,Status,CreatedDate',
     Account: 'Id,Name,CreatedDate',
-    FormSpec__c: 'Id,Name,CreatedDate',
+    CaseSI__c: 'Id,Name,CreatedDate',
   };
   const campos = CAMPOS_LEITURA[objectApiName] ?? 'Id,Name,CreatedDate';
 

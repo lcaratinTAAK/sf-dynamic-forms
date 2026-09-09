@@ -157,7 +157,7 @@ const TIPO_CONTRATO = [
     "'FORM_SPEC'",
     'Qual adaptador produziu. O consumidor não deveria precisar olhar — existe para diagnóstico.',
   ],
-  ['object', 'string', 'API name do objeto que o formulário cria: Case, Contract, Account ou FormSpec__c.'],
+  ['object', 'string', 'API name do objeto que o formulário cria: Case, Contract, Account ou CaseSI__c.'],
   [
     'recordType',
     'RecordType | null',
