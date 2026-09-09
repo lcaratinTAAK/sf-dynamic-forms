@@ -34,7 +34,7 @@
  * mexer no campo.
  */
 
-import { soql, getPicklistValues, schemaEFormulario } from '../salesforce.js';
+import { soql, getPicklistValues, getObjectInfo, schemaEFormulario } from '../salesforce.js';
 import {
   emptyContract,
   makeField,
@@ -205,6 +205,35 @@ export async function buildContract({ formId, objectApiName, recordTypeDevName =
     rt = (await soql(qRt)).records?.[0] ?? null;
   }
 
+  // 2.1 Objeto sem Record Type correspondente ao TargetRecordTypeDevName__c.
+  //     Duas situações bem diferentes escondidas atrás do mesmo "não achei":
+  //
+  //     a) O objeto não tem Record Types customizados (só o Master implícito)
+  //        — caso de CaseSI__c. Aqui TargetRecordTypeDevName__c é só uma
+  //        etiqueta informativa, nunca existiu como Record Type de verdade, e
+  //        não existindo OUTROS Record Types não existe "picklist errada" a
+  //        evitar: cai pro Record Type padrão (`defaultRecordTypeId`, sempre
+  //        resolvível) em vez de desistir de toda picklist do formulário.
+  //
+  //     b) O objeto TEM Record Types de verdade (ex.: Case) e nenhum bate com
+  //        o esperado — isso é config errada, não ausência de RT por design.
+  //        Aqui NÃO cai pro padrão: usar outro Record Type devolveria valores
+  //        de picklist válidos para um contexto diferente do formulário, o
+  //        que é pior que não resolver nenhuma. Fica como estava — sem
+  //        picklists, com o aviso de erro.
+  let rtEhFallback = false;
+  if (!rt) {
+    track('Record Type padrão (fallback)', `/ui-api/object-info/${objeto}`);
+    const info = await getObjectInfo(objeto).catch(() => null);
+    const rtsDoObjeto = Object.values(info?.recordTypeInfos ?? {});
+    const semRecordTypesCustomizados = rtsDoObjeto.length <= 1;
+
+    if (semRecordTypesCustomizados && info?.defaultRecordTypeId) {
+      rt = { Id: info.defaultRecordTypeId, Name: 'Master', DeveloperName: 'Master' };
+      rtEhFallback = true;
+    }
+  }
+
   // 3. Picklists — continuam na UI API. É a única fonte que respeita Record
   //    Type e devolve as dependências, e não entra em composite: o endpoint
   //    recusa recursos de ui-api com INVALID_BATCH_REQUEST.
@@ -214,7 +243,15 @@ export async function buildContract({ formId, objectApiName, recordTypeDevName =
     picklists = await getPicklistValues(objeto, rt.Id);
   }
 
-  const contract = specToContract(linhas, { formId, objectApiName: objeto, indiceDeCampos, controladorDe, picklists, rt });
+  const contract = specToContract(linhas, {
+    formId,
+    objectApiName: objeto,
+    indiceDeCampos,
+    controladorDe,
+    picklists,
+    rt,
+    rtEhFallback,
+  });
   contract.diagnostics.calls = calls;
   contract.diagnostics.warnings.unshift(...avisos);
   return contract;
@@ -223,7 +260,10 @@ export async function buildContract({ formId, objectApiName, recordTypeDevName =
 /**
  * Tradução pura: linhas de FormDefinition__c -> contrato. Sem I/O, testável offline.
  */
-export function specToContract(linhas, { formId, objectApiName, indiceDeCampos, controladorDe = {}, picklists, rt }) {
+export function specToContract(
+  linhas,
+  { formId, objectApiName, indiceDeCampos, controladorDe = {}, picklists, rt, rtEhFallback = false }
+) {
   const contract = emptyContract('FORM_SPEC', objectApiName);
   const raiz = linhas.find((r) => r.Id === formId);
   const tipo = (r) => r.RecordType?.DeveloperName;
@@ -256,8 +296,14 @@ export function specToContract(linhas, { formId, objectApiName, indiceDeCampos, 
 
   if (!rt) {
     contract.diagnostics.warnings.push(
-      `Record Type "${raiz.TargetRecordTypeDevName__c}" não existe ou está inativo em ${objectApiName}. ` +
-        'Picklists não puderam ser resolvidas.'
+      `Record Type "${raiz.TargetRecordTypeDevName__c}" não existe ou está inativo em ${objectApiName}, ` +
+        'e o objeto não tem Record Type padrão resolvível. Picklists não puderam ser resolvidas.'
+    );
+  } else if (rtEhFallback) {
+    contract.diagnostics.warnings.push(
+      `Record Type "${raiz.TargetRecordTypeDevName__c}" não existe em ${objectApiName} — objeto sem Record ` +
+        'Types customizados. Usando o Record Type padrão (Master) para resolver as picklists; ' +
+        'comportamento esperado para este objeto, não um erro de configuração.'
     );
   }
 
