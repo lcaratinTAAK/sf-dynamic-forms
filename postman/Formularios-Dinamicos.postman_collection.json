@@ -65,17 +65,17 @@
     {
       "key": "formId",
       "value": "",
-      "description": "Preenchido pela chamada 01."
+      "description": "Preenchido pela chamada 00 (catálogo)."
     },
     {
       "key": "recordTypeDevName",
       "value": "",
-      "description": "Preenchido pela chamada 02."
+      "description": "Preenchido pela chamada 00 (catálogo)."
     },
     {
       "key": "recordTypeId",
       "value": "",
-      "description": "Preenchido pela chamada 03."
+      "description": "Preenchido pela chamada 01."
     },
     {
       "key": "contrato",
@@ -84,6 +84,11 @@
     {
       "key": "secaoListaId",
       "value": ""
+    },
+    {
+      "key": "formKey",
+      "value": "",
+      "description": "Preenchido pela chamada 00 (catálogo)."
     }
   ],
   "item": [
@@ -187,6 +192,68 @@
       "description": "Duas chamadas montam o formulário inteiro. Eram quatro: o Record Type saía numa consulta própria porque dependia do retorno da especificação, e o catálogo era buscado de novo aqui sem ser usado.",
       "item": [
         {
+          "name": "00 · Catálogo de formulários",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "",
+                  "// Environment vence collection na resolução do Postman. Como o environment",
+                  "// de exemplo declara estas chaves, gravar só na coleção faria a requisição",
+                  "// seguinte ler o valor antigo — escreve-se onde vai ser lido.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "const forms = pm.response.json().records || [];",
+                  "console.log(forms.map((f) => `${f.Id}  ${f.VersionKey__c}  ${f.PublicLabel__c || f.Name}  → ${f.ObjectApiName__c}/${f.TargetRecordTypeDevName__c}`).join('\n'));",
+                  "",
+                  "// O canal mostra o seletor e o cliente escolhe um; aqui a escolha é fixa.",
+                  "const raiz = forms.find((f) => f.FormKey__c === 'bank_data_change') || forms[0];",
+                  "if (raiz) {",
+                  "  guardar('formId', raiz.Id);",
+                  "  guardar('formKey', raiz.FormKey__c);",
+                  "  guardar('objectApiName', raiz.ObjectApiName__c || 'Case');",
+                  "  guardar('recordTypeDevName', raiz.TargetRecordTypeDevName__c || '');",
+                  "  console.log(`formId = ${raiz.Id} (${raiz.VersionKey__c})`);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, PublicLabel__c, Description__c, FormKey__c, Version__c, VersionKey__c, Status__c, Channel__c, ObjectApiName__c, TargetRecordTypeDevName__c, VersionFieldApiName__c FROM {{specObject}} WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, PublicLabel__c, Description__c, FormKey__c, Version__c, VersionKey__c, Status__c, Channel__c, ObjectApiName__c, TargetRecordTypeDevName__c, VersionFieldApiName__c FROM {{specObject}} WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name"
+                }
+              ]
+            },
+            "description": "O primeiro passo do canal, antes de qualquer formulário: uma linha por formulário, só a versão `ACTIVE` de cada `FormKey__c`. É o que alimenta o seletor.\n\nCada linha já traz o que a chamada 01 precisa para não depender de outra ida: o `Id` da raiz (`formId`), o objeto de destino (`objectApiName`) e o Record Type (`recordTypeDevName`). O script grava os três nas variáveis — no cenário real, o canal guarda a linha que o cliente escolheu.\n\nÉ SOQL em `FormDefinition__c`, não metadado: `FieldDefinition` e `EntityParticle` descrevem os CAMPOS do objeto de destino (tipo, tamanho, dependência) e entram na chamada 01, dentro do composite, junto da especificação."
+          },
+          "response": []
+        },
+        {
           "name": "01 · Tudo do formulário, numa viagem",
           "request": {
             "method": "POST",
@@ -217,7 +284,7 @@
                 }
               }
             },
-            "description": "Quatro subrequisições: a especificação inteira do formulário, o Record Type de destino, as dependências de picklist e o schema dos campos.\n\nO Record Type cabe aqui porque o DeveloperName vem do CATÁLOGO, que o cliente já leu para montar o seletor. Sem ele a consulta dependeria do retorno da especificação.\n\nÉ /composite e NÃO /composite/batch, por um motivo medido: o batch devolve query cortada — \"done\": false com parte dos registros — junto de um status 200. Nesta org, a especificação (38 linhas de 44 colunas) vinha com 1 registro quando colocada depois do schema (397 campos). Trinta e oito registros não chegam perto do limite de 2.000 do SOQL: o corte é do batch, não da consulta. O /composite devolve tudo inteiro e ainda é mais rápido — 331 ms contra 499 ms.\n\nallOrNone: false porque aqui só se lê, e uma consulta pode falhar sem invalidar as outras. Com true, uma falha derruba as demais com PROCESSING_HALTED."
+            "description": "Quatro subrequisições: a especificação inteira do formulário, o Record Type de destino, as dependências de picklist e o schema dos campos.\n\nDepende da chamada 00: `formId`, `objectApiName` e `recordTypeDevName` vêm da linha do catálogo que o cliente escolheu no seletor. O Record Type cabe aqui porque o DeveloperName já veio do catálogo. Sem ele a consulta dependeria do retorno da especificação.\n\nÉ /composite e NÃO /composite/batch, por um motivo medido: o batch devolve query cortada — \"done\": false com parte dos registros — junto de um status 200. Nesta org, a especificação (38 linhas de 44 colunas) vinha com 1 registro quando colocada depois do schema (397 campos). Trinta e oito registros não chegam perto do limite de 2.000 do SOQL: o corte é do batch, não da consulta. O /composite devolve tudo inteiro e ainda é mais rápido — 331 ms contra 499 ms.\n\nallOrNone: false porque aqui só se lê, e uma consulta pode falhar sem invalidar as outras. Com true, uma falha derruba as demais com PROCESSING_HALTED."
           },
           "event": [
             {
@@ -960,7 +1027,7 @@
               }
             ],
             "url": {
-              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, FormKey__c, PublicLabel__c, Description__c, Channel__c, ObjectApiName__c, TargetRecordTypeDevName__c FROM {{specObject}} WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name",
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, PublicLabel__c, Description__c, FormKey__c, Version__c, VersionKey__c, Status__c, Channel__c, ObjectApiName__c, TargetRecordTypeDevName__c, VersionFieldApiName__c FROM {{specObject}} WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name",
               "host": [
                 "{{instanceUrl}}"
               ],
@@ -973,11 +1040,11 @@
               "query": [
                 {
                   "key": "q",
-                  "value": "SELECT Id, Name, FormKey__c, PublicLabel__c, Description__c, Channel__c, ObjectApiName__c, TargetRecordTypeDevName__c FROM {{specObject}} WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name"
+                  "value": "SELECT Id, Name, PublicLabel__c, Description__c, FormKey__c, Version__c, VersionKey__c, Status__c, Channel__c, ObjectApiName__c, TargetRecordTypeDevName__c, VersionFieldApiName__c FROM {{specObject}} WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name"
                 }
               ]
             },
-            "description": "Uma linha por formulário: só a versão `ACTIVE` de cada `FormKey__c`. É a consulta que o canal faz ao abrir. Guarda o Id da primeira raiz em `formId`."
+            "description": "Mesma consulta de `01 · Montar o formulário › 00 · Catálogo de formulários`, repetida aqui para a pasta ficar completa por Record Type. Guarda `formId`, `objectApiName` e `recordTypeDevName`."
           },
           "event": [
             {
@@ -986,9 +1053,25 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200', () => pm.response.to.have.status(200));",
-                  "const r = pm.response.json();",
-                  "const raiz = (r.records || []).find((x) => x.FormKey__c === 'bank_data_change') || (r.records || [])[0];",
-                  "if (raiz) { pm.collectionVariables.set('formId', raiz.Id); pm.collectionVariables.set('formKey', raiz.FormKey__c); pm.collectionVariables.set('recordTypeDevName', raiz.TargetRecordTypeDevName__c || ''); console.log('formId = ' + raiz.Id + ' (' + raiz.FormKey__c + ')'); }"
+                  "",
+                  "// Environment vence collection na resolução do Postman. Como o environment",
+                  "// de exemplo declara estas chaves, gravar só na coleção faria a requisição",
+                  "// seguinte ler o valor antigo — escreve-se onde vai ser lido.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "const forms = pm.response.json().records || [];",
+                  "console.log(forms.map((f) => `${f.Id}  ${f.VersionKey__c}  ${f.PublicLabel__c || f.Name}  → ${f.ObjectApiName__c}/${f.TargetRecordTypeDevName__c}`).join('\n'));",
+                  "",
+                  "// O canal mostra o seletor e o cliente escolhe um; aqui a escolha é fixa.",
+                  "const raiz = forms.find((f) => f.FormKey__c === 'bank_data_change') || forms[0];",
+                  "if (raiz) {",
+                  "  guardar('formId', raiz.Id);",
+                  "  guardar('formKey', raiz.FormKey__c);",
+                  "  guardar('objectApiName', raiz.ObjectApiName__c || 'Case');",
+                  "  guardar('recordTypeDevName', raiz.TargetRecordTypeDevName__c || '');",
+                  "  console.log(`formId = ${raiz.Id} (${raiz.VersionKey__c})`);",
+                  "}"
                 ]
               }
             }
