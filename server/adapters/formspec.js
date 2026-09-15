@@ -61,7 +61,8 @@ const CAMPOS = `Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c,
   FilterLogicType__c, FilterLogic__c,
   Body__c, ItemLabel__c, AddButtonText__c,
   Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c,
-  ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c`.replace(/\s+/g, ' ');
+  ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c,
+  ReferenceType__c, ReferenceObjectApiName__c, ExternalIdFieldApiName__c`.replace(/\s+/g, ' ');
 
 /** Catálogo: só as linhas raiz. Uma query. */
 export const queryCatalogo = () =>
@@ -79,6 +80,9 @@ export const queryCatalogo = () =>
  * hierarquia em objetos separados precisaria de várias chamadas, porque SOQL
  * só desce um nível de sub-query.
  */
+/** Multi-select picklist vem como 'A;B;C'. */
+const canais = (valor) => (valor ? String(valor).split(';').filter(Boolean) : []);
+
 export const querySpec = (formId) =>
   `SELECT ${CAMPOS} FROM ${OBJ} ` +
   `WHERE (Id = '${formId}' OR Form__c = '${formId}') AND IsActive__c = true ` +
@@ -409,6 +413,7 @@ export function specToContract(
   // --- filhos: quem tem Parent__c vazio é filho direto da raiz ---
   const filhosDe = (paiId) =>
     linhas
+      // Regras não são componentes visuais: ficam fora da árvore.
       .filter((r) => r.Id !== formId && tipo(r) !== 'Rule')
       .filter((r) => (paiId === formId ? !r.Parent__c : r.Parent__c === paiId))
       .sort((a, b) => (a.Sort__c ?? 0) - (b.Sort__c ?? 0));
@@ -450,7 +455,7 @@ export function specToContract(
       return item;
     }
 
-    if (t === 'Field') {
+    if (t === 'Field' || t === 'Reference') {
       let campo = makeField(r.FieldApiName__c, {
         label: r.LabelOverride__c || r.FieldApiName__c,
         required: r.IsRequired__c === true,
@@ -465,7 +470,18 @@ export function specToContract(
       if (r.LabelOverride__c) campo.label = r.LabelOverride__c;
       if (r.HelpTextOverride__c) campo.helpText = r.HelpTextOverride__c;
       campo.required = r.IsRequired__c === true;
-      campo.kind = 'field';
+      campo.kind = t === 'Reference' ? 'reference' : 'field';
+      if (t === 'Reference') {
+        // O que o usuário escolhe neste campo. O front abre o seletor da
+        // entidade e grava o identificador externo como TEXTO em
+        // FieldApiName__c — o Salesforce resolve o lookup depois, sem travar
+        // a criação quando não há correspondência.
+        campo.reference = {
+          type: r.ReferenceType__c ?? null,
+          object: r.ReferenceObjectApiName__c ?? null,
+          externalIdField: r.ExternalIdFieldApiName__c ?? null,
+        };
+      }
       campo.width = r.Width__c ?? 'FULL';
       campo.placeholder = r.Placeholder__c ?? null;
       campo.defaultValue = r.DefaultValue__c ?? null;

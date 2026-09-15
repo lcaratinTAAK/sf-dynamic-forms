@@ -15,6 +15,10 @@
  *     id, label,
  *     fields: [{
  *       apiName, label, dataType, required, readOnly, helpText, maxLength,
+ *       kind: 'field' | 'reference' | 'attachment' | 'content',
+ *       reference: { type, object, externalIdField } | undefined,
+ *                                          // kind=reference: o campo é o id externo de um registro que o
+ *                                          // usuário ESCOLHE (contrato, imóvel); vai como TEXTO no submit
  *       options: [{ value, label, validFor }] | null,
  *       controllerField: string | null,
  *       visibility: Visibility | null
@@ -43,6 +47,9 @@ export const OPERATORS = Object.freeze({
   IS_NULL: 'IS_NULL',
   IS_NOT_NULL: 'IS_NOT_NULL',
 });
+
+/** Fields and references both carry an answer into the record; content and attachments do not. */
+export const isFieldLike = (f) => (f.kind ?? 'field') === 'field' || f.kind === 'reference';
 
 export function emptyContract(source, objectApiName) {
   return {
@@ -520,9 +527,9 @@ export function buildSubmitPayload(contract, values) {
   const fields = secoesSimples
     .filter((s) => isVisible(s, values))
     .flatMap((s) => s.fields)
-    .filter((f) => (f.kind ?? 'field') === 'field');
+    .filter((f) => isFieldLike(f));
 
-  const todosOsCampos = secoesSimples.flatMap((s) => s.fields).filter((f) => (f.kind ?? 'field') === 'field');
+  const todosOsCampos = secoesSimples.flatMap((s) => s.fields).filter((f) => isFieldLike(f));
   const visible = fields.filter((f) => isVisible(f, values));
 
   const record = { attributes: { type: contract.object } };
@@ -599,7 +606,7 @@ function montarItensDeLista(listas, values) {
 
   for (const lista of listas) {
     const brutos = (values.__listas && values.__listas[lista.id]) || [];
-    const campos = lista.fields.filter((f) => (f.kind ?? 'field') === 'field');
+    const campos = lista.fields.filter((f) => isFieldLike(f));
 
     const preenchidos = brutos
       .map((item) => {

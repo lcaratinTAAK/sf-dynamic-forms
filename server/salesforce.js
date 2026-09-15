@@ -546,6 +546,9 @@ const COLUNAS_SCHEMA = [
   'QualifiedApiName', 'Label', 'DataType', 'Length', 'Precision', 'Scale',
   'IsNillable', 'IsCalculated', 'InlineHelpText', 'IsDependentPicklist',
   'IsCreatable', 'IsUpdatable',
+  // RelationshipName (Contract__r) é como se grava um lookup por chave externa
+  // no create — o contrato dos contextos precisa dele.
+  'RelationshipName',
   // DurableId é o que amarra o campo dependente ao seu controlador: o
   // ControllingFieldDefinitionId do FieldDefinition aponta para ele.
   'DurableId',

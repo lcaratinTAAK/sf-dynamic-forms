@@ -18,6 +18,20 @@ function Componente({ item, values, onChange, files, onFiles, erro }) {
     );
   }
 
+  if (kind === 'reference') {
+    // No app isto vira um seletor da entidade; aqui, um campo de texto que
+    // recebe o id externo e diz ao lado do que se trata.
+    return (
+      <div className="referencia">
+        <Field field={item} value={values[item.apiName]} values={values} onChange={onChange} erro={erro} />
+        <div className="help">
+          Referência a <code>{item.reference?.object}</code> por <code>{item.reference?.externalIdField}</code>
+          {' · '}vai como texto em <code>{item.apiName}</code>
+        </div>
+      </div>
+    );
+  }
+
   if (kind === 'attachment') {
     const selecionados = (files || []).filter((f) => f.__code === item.code);
     return (

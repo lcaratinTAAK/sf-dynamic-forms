@@ -11,6 +11,7 @@
 | :---- | :---- |
 | 28 de ago. de 2026 | Started |
 | 31 de ago. de 2026 | Dividida em duas etapas; VO da tabela por Record Type; retornos de API; contrato rebaixado a proposta |
+| 10 de set. de 2026 | Objeto renomeado para `FormDefinition__c`; versões (`FormKey__c`/`Version__c`/`Status__c`); cabeçalho por campo/valor (Tipo, Prioridade, Versão, Fila); campos de referência (RT `Reference`, entidades vindas do metadado) |
 
 ## Approvers
 
@@ -33,7 +34,7 @@ O documento está dividido em **duas etapas**, que podem ser lidas — e impleme
 | **1** | A definição no Salesforce | modelo de dados, regras, e a tela onde operação monta o formulário | time Salesforce |
 | **2** | O consumo pelas APIs | quais chamadas fazer, com quais payloads, e o que cada uma devolve | time consumidor |
 
-Quatro fontes de definição foram implementadas e comparadas numa prova de conceito. Esta RFC propõe **uma delas** — um objeto customizado, `SI_FormSpec__c` — e registra por que as outras três foram descartadas.
+Quatro fontes de definição foram implementadas e comparadas numa prova de conceito. Esta RFC propõe **uma delas** — um objeto customizado, `FormDefinition__c` — e registra por que as outras três foram descartadas.
 
 # Goals & Non-Goals
 
@@ -83,7 +84,7 @@ As setas são numeradas porque leitura e escrita compartilham as mesmas colunas 
   ──────                   ──────────                    ──────────
 
  ┌────────────┐  1 pede   ┌──────────────────┐ 2 consulta  ┌──────────────────┐
- │ Magic Link │ ────────▶ │     MONTAR       │ ──────────▶ │ SI_FormSpec__c   │
+ │ Magic Link │ ────────▶ │     MONTAR       │ ──────────▶ │ FormDefinition__c   │
  ├────────────┤           │                  │             │ RecordType       │
  │ Site / App │           │ lê a definição   │ 3 devolve   │ EntityParticle   │
  ├────────────┤ ◀──────── │ e o schema       │ ◀────────── │ ui-api picklists │
@@ -112,7 +113,7 @@ Nada nos canais conhece a origem da definição. Trocar a fonte no Salesforce n�
 
 ## O modelo de dados
 
-A definição inteira vive num objeto customizado, `SI_FormSpec__c`. O Record Type discrimina o papel de cada linha, e `Parent__c` monta a árvore.
+A definição inteira vive num objeto customizado, `FormDefinition__c`. O Record Type discrimina o papel de cada linha, e `Parent__c` monta a árvore.
 
 | Record Type | O que é | Filhos que aceita |
 | :---- | :---- | :---- |
@@ -123,6 +124,7 @@ A definição inteira vive num objeto customizado, `SI_FormSpec__c`. O Record Ty
 | `Attachment` | documento exigido | regras |
 | `Content` | bloco de texto | regras |
 | `Rule` | uma condição | — |
+| `Reference` | um campo de texto em que o cliente **escolhe** um registro de outro objeto (contrato, imóvel) | regras |
 
 Três decisões merecem registro.
 
@@ -156,12 +158,20 @@ A tabela é compartilhada e a consulta é unificada: **uma linha traz todas as c
 
 | Coluna | Tipo | | O que é |
 | :---- | :---- | :----: | :---- |
-| `ObjectApiName__c` | Text | O | objeto que o formulário cria. Hoje sempre `Case` |
+| `FormKey__c` | Text(80), External ID | O | **identificador estável** do formulário, como o API Name de um Flow. Igual em todas as versões; é o que canais e automações referenciam |
+| `Version__c` | Number | O | sequencial dentro da chave, a partir de 1 |
+| `Status__c` | Picklist | O | `DRAFT` (editável, não servida), `ACTIVE` (a que os canais leem), `ARCHIVED` (histórico) |
+| `VersionKey__c` | Text, único | O | `FormKey__c#Version__c`, preenchido pelo controller. A unicidade impede duas linhas reivindicarem a mesma versão |
+| `IsActive__c` | Checkbox | O | derivado de `Status__c = ACTIVE`. É o único filtro que o consumidor precisa conhecer |
+| `ObjectApiName__c` | Text | O | objeto que o formulário cria (`Case`, `CaseSI__c`). A lista permitida é o metadado `FormBuilderAllowlist__mdt` |
 | `TargetRecordTypeDevName__c` | Text | O | `DeveloperName` do Record Type de destino |
-| `CaseType__c` | Text | • | gravado em `Type` sem virar pergunta |
-| `Channel__c` | Picklist | • | canal ao qual o formulário pertence |
+| `QueueDeveloperName__c` | Text | • | `DeveloperName` da fila que recebe o registro (`OwnerId`). Nome, não Id: Id de fila muda entre orgs |
+| `TypeFieldApiName__c` / `TypeValue__c` | Text | • | em que campo do objeto gravar o tipo, e com que valor, sem virar pergunta |
+| `PriorityFieldApiName__c` / `PriorityValue__c` | Text | • | idem para a prioridade |
+| `VersionFieldApiName__c` | Text | • | campo do objeto que recebe a versão do formulário na criação |
+| `Channel__c` | Multi-select | • | canais em que o formulário é oferecido (`ONLINE`, `MAGICLINK`, `BOT`). Vem como `A;B` |
 | `PublicLabel__c` | Text | • | rótulo exibido ao cliente. Sem ele, usa-se `Name` |
-| `Description__c` | LongText | • | texto de abertura |
+| `Description__c` | LongText | • | para que serve o formulário, nas palavras do cliente. É o texto de abertura **e** o que o bot usa para levar o cliente ao formulário certo — obrigatória para ativar |
 
 `Form__c` e `Parent__c` ficam **vazios** na raiz — é assim que ela se identifica.
 
@@ -249,9 +259,21 @@ Aqui `Name` é identificação interna e **não deve ser exibido** — o que apa
 | `Effect__c` | Picklist | • | `SHOW` (padrão), `REQUIRE` ou `BLOCK` |
 | `Sort__c` | Number | • | o número da condição na expressão `CUSTOM` |
 
-### Colunas obsoletas
+### `Reference` — um campo que aponta para outro registro
 
-`Page__c` e `IsRepeating__c` existem na tabela e **não devem ser lidas**. A primeira é de um desenho de paginação abandonado; a segunda foi substituída pelo Record Type `RepeatingSection`. Ambas devem sair do objeto.
+Um campo de texto em que o cliente **escolhe** um registro de outro objeto (o contrato, o imóvel) em vez de digitar. É um `Field` com a entidade declarada: ocupa lugar no grid, tem largura, obrigatoriedade e regras, e grava em `FieldApiName__c`. O que muda é que o consumidor sabe **o que** o campo é sem adivinhar pelo nome, e renderiza o seletor da entidade. No app esses campos podem ser pedidos antes do formulário; na web entram no layout como qualquer campo — inclusive sob condição.
+
+| Coluna | Tipo | | O que é |
+| :---- | :---- | :----: | :---- |
+| `ReferenceType__c` | Text | O | a entidade: `CONTRACT`, `PROPERTY`. Os valores válidos são os registros `Reference` ativos de `FormBuilderAllowlist__mdt` para o objeto do formulário |
+| `FieldApiName__c` | Text | O | o campo **texto** do objeto de destino que recebe o identificador escolhido (`RelatedContractId__c`). Vem do metadado, não do operador |
+| `ReferenceObjectApiName__c` | Text | O | objeto onde a entidade vive (`Contract`, `Property__c`). Copiado do metadado no save |
+| `ExternalIdFieldApiName__c` | Text | O | qual identificador do registro escolhido vai no texto (`ExternalId__c`). Copiado do metadado no save |
+| `LabelOverride__c`, `HelpTextOverride__c`, `IsRequired__c`, `Width__c` e as lógicas | — | • | iguais a `Field` |
+
+O metadado (`FormBuilderAllowlist__mdt`, categoria `Reference`) amarra, por objeto de destino, a entidade ao campo de texto que a recebe, ao objeto referenciado, à chave externa e ao lookup que o Salesforce preenche quando o texto bate (`TargetLookupApiName__c`). O operador só escolhe a entidade; o resto é curadoria de engenharia, revisada em PR. O mesmo objeto pode aparecer em duas entidades com chaves externas diferentes (contrato de aluguel e de venda), por isso a identidade é a entidade, não o objeto.
+
+**No submit o valor vai como texto**, no próprio campo. Nada de lookup nem de chave externa na relação: o Salesforce procura o registro e, se achar, preenche o lookup; se não achar, o registro é criado mesmo assim. É a garantia que o Magic Link já dá hoje, com o campo declarado em vez de adivinhado.
 
 ## Regras: uma máquina de filtros, três efeitos
 
@@ -378,7 +400,7 @@ Uma requisição, duas consultas.
     {
       "method": "GET",
       "referenceId": "catalogo",
-      "url": "/services/data/v66.0/query?q=SELECT+Id,+Name,+PublicLabel__c,+Description__c,+ObjectApiName__c,+TargetRecordTypeDevName__c,+CaseType__c,+Channel__c+FROM+SI_FormSpec__c+WHERE+RecordType.DeveloperName+%3D+'Form'+AND+IsActive__c+%3D+true+ORDER+BY+Name"
+      "url": "/services/data/v66.0/query?q=SELECT+Id,+Name,+PublicLabel__c,+Description__c,+ObjectApiName__c,+TargetRecordTypeDevName__c,+QueueDeveloperName__c,+TypeFieldApiName__c,+TypeValue__c,+PriorityFieldApiName__c,+PriorityValue__c,+VersionFieldApiName__c,+FormKey__c,+Version__c,+Status__c,+VersionKey__c,+Channel__c+FROM+FormDefinition__c+WHERE+RecordType.DeveloperName+%3D+'Form'+AND+IsActive__c+%3D+true+ORDER+BY+Name"
     },
     {
       "method": "GET",
@@ -401,7 +423,7 @@ A alternativa de **gravar o Id na tabela** — no momento em que operação esco
 {
   "allOrNone": false,
   "compositeRequest": [
-    { "method": "GET", "referenceId": "especificacao", "url": "/services/data/v66.0/query?q=SELECT+…+FROM+SI_FormSpec__c+WHERE+(Id+%3D+'{formId}'+OR+Form__c+%3D+'{formId}')+AND+IsActive__c+%3D+true+ORDER+BY+Sort__c+NULLS+FIRST,+Name" },
+    { "method": "GET", "referenceId": "especificacao", "url": "/services/data/v66.0/query?q=SELECT+…+FROM+FormDefinition__c+WHERE+(Id+%3D+'{formId}'+OR+Form__c+%3D+'{formId}')+AND+IsActive__c+%3D+true+ORDER+BY+Sort__c+NULLS+FIRST,+Name" },
     { "method": "GET", "referenceId": "dependentes",   "url": "/services/data/v66.0/query?q=SELECT+DurableId,+QualifiedApiName,+ControllingFieldDefinitionId+FROM+FieldDefinition+WHERE+EntityDefinition.QualifiedApiName+%3D+'Case'+AND+ControllingFieldDefinitionId+!%3D+null" },
     { "method": "GET", "referenceId": "schema",        "url": "/services/data/v66.0/query?q=SELECT+QualifiedApiName,+Label,+DataType,+Length,+InlineHelpText,+IsNillable,+IsCreatable,+IsDependentPicklist,+DurableId+FROM+EntityParticle+WHERE+EntityDefinition.QualifiedApiName+%3D+'Case'+AND+IsCreatable+%3D+true" }
   ]
@@ -429,7 +451,7 @@ Todas as consultas SOQL desta RFC devolvem a mesma forma. Um exemplo real, abrev
         "done": true,
         "records": [
           {
-            "attributes": { "type": "SI_FormSpec__c", "url": "/services/data/…/a0x…" },
+            "attributes": { "type": "FormDefinition__c", "url": "/services/data/…/a0x…" },
             "Id": "a0x…", "Name": "Papel",
             "RecordType": { "DeveloperName": "Field" },
             "Parent__c": "a0x…", "Sort__c": 1,
@@ -560,14 +582,18 @@ Montar um formulário custa **469,5 KB**, e ~950 ms com as duas chamadas em para
 
 ## Campos gravados sem passar pelo formulário
 
-Dois campos são gravados pelo consumidor e **nunca** aceitos do cliente:
+Estes campos são gravados pelo consumidor e **nunca** aceitos do cliente:
 
 | Campo | Origem |
 | :---- | :---- |
 | `RecordTypeId` | resolvido a partir de `TargetRecordTypeDevName__c` da raiz |
-| `Type` | `CaseType__c` da raiz |
+| campo de `TypeFieldApiName__c` | `TypeValue__c` da raiz (ex.: `Type = BankDataChange`) |
+| campo de `PriorityFieldApiName__c` | `PriorityValue__c` da raiz |
+| campo de `VersionFieldApiName__c` | `VersionKey__c` da raiz (`bank_data_change#2`): identifica qual formulário e versão criou o registro |
+| `OwnerId` | fila resolvida por `QueueDeveloperName__c` |
+| campo de cada `Reference` | o id externo do registro que o cliente escolheu, **como texto** no próprio campo (`RelatedContractId__c`). O Salesforce resolve o lookup depois, sem travar a criação |
 
-Isso não é detalhe de implementação: se o Record Type vier do cliente, quem editar a requisição escolhe em que Record Type o Caso nasce — e com ele o roteamento, o layout e as regras de atendimento.
+Isso não é detalhe de implementação: se o Record Type vier do cliente, quem editar a requisição escolhe em que Record Type o registro nasce — e com ele o roteamento, o layout e as regras de atendimento. O mesmo vale para uma referência: o consumidor manda o id que o cliente escolheu, e o vínculo é feito no Salesforce.
 
 Se a implementação otimizar recebendo o Record Type já resolvido (como o passo 1 permite), **o valor recebido deve ser tratado como palpite**: comparar com `TargetRecordTypeDevName__c` da especificação e descartar se divergir. A divergência também acontece sem má-fé — basta o catálogo estar velho em cache depois de operação trocar o Record Type do formulário.
 
@@ -601,7 +627,8 @@ A ideia é que os canais conheçam apenas esta forma, e a fonte da definição n
     "id": "a0x…", "label": "Identificação", "repeating": false,
     "visibility": null,                    // { logic, expression, conditions[] }
     "fields": [{
-      "kind": "field",                     // field | attachment | content
+      "kind": "field",                     // field | reference | attachment | content
+      "reference": null,                   // kind=reference: { type, object, externalIdField }; o valor vai como texto
       "apiName": "SI_BankBranch__c",
       "label": "Agência", "dataType": "String", "maxLength": 10,
       "required": true, "readOnly": false, "hidden": false,
@@ -613,7 +640,8 @@ A ideia é que os canais conheçam apenas esta forma, e a fonte da definição n
     }]
   }],
   "attachments": { "required": true, "minimumCount": 2, "documents": [] },
-  "backendFields": { "RecordTypeId": "012…", "Type": "BankDataChange" },
+  "backendFields": { "RecordTypeId": "012…", "Type": "BankDataChange", "Priority": "Medium" },
+  "formDefinition": { "key": "bank_data_change", "version": 2 },
   "diagnostics": { "warnings": [] }
 }
 ```
@@ -646,9 +674,9 @@ A validação de cliente **não substitui** enforcement no servidor. Nada impede
 
 # Dependencies
 
-* **Salesforce Platform** — objeto customizado `SI_FormSpec__c`, o configurador LWC, e os campos de destino no `Case`.
+* **Salesforce Platform** — objeto customizado `FormDefinition__c`, o configurador LWC, e os campos de destino no `Case`.
 * **External Client App** com OAuth 2.0 Client Credentials, para o consumidor autenticar como aplicação. A chave e o segredo são gerados **por org** e não vêm no metadata: cada ambiente tem o seu par, e o usuário "Run As" precisa ser definido manualmente em Setup.
-* **Permission set** com FLS de leitura sobre `SI_FormSpec__c` e sobre todo campo usado por algum formulário. Administrador **não** recebe FLS automático em campo customizado implantado por metadata, e a API REST reporta campo sem FLS como `No such column` — o erro parece de campo inexistente.
+* **Permission set** com FLS de leitura sobre `FormDefinition__c` e sobre todo campo usado por algum formulário. Administrador **não** recebe FLS automático em campo customizado implantado por metadata, e a API REST reporta campo sem FLS como `No such column` — o erro parece de campo inexistente.
 * **Objetos de destino dos itens de lista** (ex.: `CaseMember__c`), com o campo de vínculo ao Caso.
 
 # Alternatives Considered & Prior Art
@@ -660,7 +688,7 @@ Quatro fontes de definição foram implementadas e comparadas.
 | **Page Layout** (UI API) | `ui-api/layout` | O layout não modela condição nem anexo. Exigiu dois objetos de apoio, e o layout devolvido depende do *profile* do usuário autenticado — o formulário sai diferente sem nada acusar |
 | **`record-defaults/create`** | UI API | Devolve o objeto inteiro para montar um formulário de 15 campos. Mais dado, menos controle |
 | **Screen Flow** | Tooling API | Visibilidade e anexo nativos, mas **não** aceita obrigatoriedade em campo vinculado ao objeto — os dois recursos são mutuamente exclusivos no metadado do Flow. Ler Flow pela Tooling também exige três permissões de Setup, e com elas o usuário de integração enxerga todos os flows da org |
-| **Objeto customizado** | `SI_FormSpec__c` | **A proposta.** Nada é nativo — tudo foi construído — mas nada esbarra em limite de estrutura alheia |
+| **Objeto customizado** | `FormDefinition__c` | **A proposta.** Nada é nativo — tudo foi construído — mas nada esbarra em limite de estrutura alheia |
 
 O que decidiu foi o item da obrigatoriedade condicional: é requisito do corpus, e é o único ponto sem contorno no Screen Flow.
 

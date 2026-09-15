@@ -2,7 +2,7 @@
   "info": {
     "name": "Salesforce · Formulários dinâmicos (fonte Custom)",
     "_postman_id": "9f2a1c40-5f1e-4c3a-9d21-7f4b2c8ad001",
-    "description": "As chamadas que montam e submetem um formulário dinâmico a partir de `SI_FormSpec__c`.\n\nA coleção roda **de cima para baixo**: cada pasta grava nas variáveis o que a próxima precisa. Rode `00 · Autenticação` primeiro e depois use o Collection Runner, ou dispare uma a uma na ordem.\n\n### Antes de começar\n\nPreencha o *environment* `Scratch org`:\n\n| variável | onde achar |\n| :-- | :-- |\n| `loginUrl` | `https://test.salesforce.com` para sandbox/scratch, `https://login.salesforce.com` para produção |\n| `clientId` / `clientSecret` | External Client App na org, com Client Credentials habilitado |\n| `instanceUrl` | preenchido automaticamente pela autenticação |\n\nComo atalho, dá para pular o OAuth e colar um token direto em `accessToken` + `instanceUrl`:\n\n```\nsf org auth show-access-token --no-prompt --json -o <alias>\n```\n\n> `sf org display` **não** serve: ele devolve o token como `[REDACTED]`.\n\n### Pastas\n\n- **00** autenticação e identidade\n- **01** as quatro chamadas que montam um formulário\n- **02** o envio, com e sem registros filhos\n- **03** o BFF — o contrato normalizado, que é o que os canais consomem\n- **04** alternativas medidas, incluindo as que **falham de propósito**\n- **05** diagnóstico\n\nPesos e tempos citados nas descrições foram medidos numa scratch org com `Case` em 397 campos criáveis.",
+    "description": "As chamadas que montam e submetem um formulário dinâmico a partir de `FormDefinition__c`.\n\nA coleção roda **de cima para baixo**: cada pasta grava nas variáveis o que a próxima precisa. Rode `00 · Autenticação` primeiro e depois use o Collection Runner, ou dispare uma a uma na ordem.\n\n### Antes de começar\n\nPreencha o *environment* `Scratch org`:\n\n| variável | onde achar |\n| :-- | :-- |\n| `loginUrl` | `https://test.salesforce.com` para sandbox/scratch, `https://login.salesforce.com` para produção |\n| `clientId` / `clientSecret` | External Client App na org, com Client Credentials habilitado |\n| `instanceUrl` | preenchido automaticamente pela autenticação |\n\nComo atalho, dá para pular o OAuth e colar um token direto em `accessToken` + `instanceUrl`:\n\n```\nsf org auth show-access-token --no-prompt --json -o <alias>\n```\n\n> `sf org display` **não** serve: ele devolve o token como `[REDACTED]`.\n\n### Pastas\n\n- **00** autenticação e identidade\n- **01** as quatro chamadas que montam um formulário\n- **02** o envio, com e sem registros filhos\n- **03** o BFF — o contrato normalizado, que é o que os canais consomem\n- **04** alternativas medidas, incluindo as que **falham de propósito**\n- **05** diagnóstico\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n\nPesos e tempos citados nas descrições foram medidos numa scratch org com `Case` em 397 campos criáveis.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -44,7 +44,7 @@
     },
     {
       "key": "specObject",
-      "value": "SI_FormSpec__c",
+      "value": "FormDefinition__c",
       "description": "Objeto que guarda a definição."
     },
     {
@@ -210,7 +210,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"allOrNone\": false,\n  \"compositeRequest\": [\n    {\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Page__c, Width__c, ObjectApiName__c, TargetRecordTypeDevName__c, CaseType__c, Channel__c, PublicLabel__c, Description__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c, IsRequired__c, IsReadOnly__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, ConditionFieldApiName__c, Operator__c, Value__c, Effect__c, FilterLogicType__c, FilterLogic__c, Body__c, IsRepeating__c, ItemLabel__c, AddButtonText__c, Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true ORDER BY Sort__c NULLS FIRST, Name\",\n      \"referenceId\": \"especificacao\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, DeveloperName FROM RecordType WHERE SobjectType = '{{objectApiName}}' AND DeveloperName = '{{recordTypeDevName}}' LIMIT 1\",\n      \"referenceId\": \"recordType\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT DurableId, QualifiedApiName, ControllingFieldDefinitionId FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND ControllingFieldDefinitionId != null\",\n      \"referenceId\": \"dependentes\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT QualifiedApiName, Label, DataType, Length, Precision, Scale, IsNillable, IsCalculated, InlineHelpText, IsDependentPicklist, IsCreatable, IsUpdatable, DurableId FROM EntityParticle WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND IsCreatable = true\",\n      \"referenceId\": \"schema\"\n    }\n  ]\n}",
+              "raw": "{\n  \"allOrNone\": false,\n  \"compositeRequest\": [\n    {\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Width__c, ObjectApiName__c, TargetRecordTypeDevName__c, FormKey__c, Version__c, Status__c, VersionKey__c, TypeFieldApiName__c, TypeValue__c, PriorityFieldApiName__c, PriorityValue__c, VersionFieldApiName__c, QueueDeveloperName__c, Channel__c, PublicLabel__c, Description__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c, IsRequired__c, IsReadOnly__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, ConditionFieldApiName__c, Operator__c, Value__c, Effect__c, FilterLogicType__c, FilterLogic__c, Body__c, ItemLabel__c, AddButtonText__c, Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c, ReferenceType__c, ReferenceObjectApiName__c, ExternalIdFieldApiName__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true ORDER BY Sort__c NULLS FIRST, Name\",\n      \"referenceId\": \"especificacao\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, DeveloperName FROM RecordType WHERE SobjectType = '{{objectApiName}}' AND DeveloperName = '{{recordTypeDevName}}' LIMIT 1\",\n      \"referenceId\": \"recordType\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT DurableId, QualifiedApiName, ControllingFieldDefinitionId FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND ControllingFieldDefinitionId != null\",\n      \"referenceId\": \"dependentes\"\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT QualifiedApiName, Label, DataType, Length, Precision, Scale, IsNillable, IsCalculated, InlineHelpText, IsDependentPicklist, IsCreatable, IsUpdatable, DurableId FROM EntityParticle WHERE EntityDefinition.QualifiedApiName = '{{objectApiName}}' AND IsCreatable = true\",\n      \"referenceId\": \"schema\"\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -335,7 +335,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"RecordTypeId\": \"{{recordTypeId}}\",\n  \"Type\": \"BankDataChange\",\n  \"SI_RequesterType__c\": \"Proprietario\",\n  \"SI_ContractStatus__c\": \"Ativo\",\n  \"SI_Email__c\": \"teste.demo@exemplo.com.br\",\n  \"SI_FullName__c\": \"Maria Teste da Silva\",\n  \"SI_OwnerDocument__c\": \"000.000.000-00\",\n  \"SI_AccountHolder__c\": \"MesmaTitularidade\",\n  \"SI_BankType__c\": \"BancoDigital\",\n  \"SI_BankBranch__c\": \"0001\",\n  \"SI_BankAccount__c\": \"123456-7\",\n  \"SI_DocumentType__c\": \"CNH\"\n}"
+              "raw": "{\n  \"RelatedContractId__c\": \"ctr_8821\",\n  \"SI_RequesterType__c\": \"Proprietario\",\n  \"SI_ContractStatus__c\": \"Ativo\",\n  \"SI_Email__c\": \"teste.demo@exemplo.com.br\",\n  \"SI_FullName__c\": \"Maria Teste da Silva\",\n  \"SI_OwnerDocument__c\": \"000.000.000-00\",\n  \"SI_AccountHolder__c\": \"MesmaTitularidade\",\n  \"SI_BankType__c\": \"BancoDigital\",\n  \"SI_BankBranch__c\": \"0001\",\n  \"SI_BankAccount__c\": \"123456-7\",\n  \"SI_DocumentType__c\": \"CNH\"\n}"
             },
             "url": {
               "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}",
@@ -350,7 +350,7 @@
                 "{{objectApiName}}"
               ]
             },
-            "description": "`RecordTypeId` e `Type` são **campos de back-end**: o servidor os injeta a partir do catálogo, não os renderiza e não os aceita do cliente.\n\nQuem escolheu o formulário já escolheu os dois. Perguntar de novo abriria espaço para o payload divergir do catálogo — e para um cliente forjar em que Record Type o Caso nasce."
+            "description": "O payload leva **três coisas**: as respostas dos campos (referências incluídas, como texto no próprio campo — `RelatedContractId__c` recebe o id externo do contrato escolhido), os campos ocultos com valor fixo, e a chave da versão no campo indicado em `VersionFieldApiName__c`.\n\nRecord Type, tipo, prioridade, fila e caso auxiliar **não vão**: o Salesforce lê a chave da versão no registro criado e aplica tudo isso por automação. O lookup da referência também é resolvido lá, sem travar a criação quando o id não bate. Este formulário de demonstração em `Case` ainda não tem `VersionFieldApiName__c`; nos formulários em `CaseSI__c` o campo é `FormVersion__c`."
           }
         },
         {
@@ -399,7 +399,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"allOrNone\": true,\n  \"compositeRequest\": [\n    {\n      \"referenceId\": \"refPai\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}\",\n      \"body\": {\n        \"RecordTypeId\": \"{{recordTypeId}}\",\n        \"Type\": \"BankDataChange\",\n        \"SI_RequesterType__c\": \"Proprietario\",\n        \"SI_ContractStatus__c\": \"Ativo\",\n        \"SI_Email__c\": \"teste.demo@exemplo.com.br\",\n        \"SI_FullName__c\": \"Maria Teste da Silva\",\n        \"SI_OwnerDocument__c\": \"000.000.000-00\",\n        \"SI_AccountHolder__c\": \"MesmaTitularidade\",\n        \"SI_BankType__c\": \"BancoDigital\",\n        \"SI_BankBranch__c\": \"0001\",\n        \"SI_BankAccount__c\": \"123456-7\",\n        \"SI_DocumentType__c\": \"CNH\"\n      }\n    },\n    {\n      \"referenceId\": \"item1\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/CaseMember__c\",\n      \"body\": {\n        \"Name\": \"João Souza\",\n        \"ExternalId__c\": \"12345678901\",\n        \"Type__c\": \"Landlord\",\n        \"MemberSource__c\": \"Cognito\",\n        \"Case__c\": \"@{refPai.id}\"\n      }\n    },\n    {\n      \"referenceId\": \"registroCriado\",\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}/@{refPai.id}?fields=Id,CaseNumber,Status,CreatedDate\"\n    }\n  ]\n}"
+              "raw": "{\n  \"allOrNone\": true,\n  \"compositeRequest\": [\n    {\n      \"referenceId\": \"refPai\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}\",\n      \"body\": {\n        \"RelatedContractId__c\": \"ctr_8821\",\n        \"SI_RequesterType__c\": \"Proprietario\",\n        \"SI_ContractStatus__c\": \"Ativo\",\n        \"SI_Email__c\": \"teste.demo@exemplo.com.br\",\n        \"SI_FullName__c\": \"Maria Teste da Silva\",\n        \"SI_OwnerDocument__c\": \"000.000.000-00\",\n        \"SI_AccountHolder__c\": \"MesmaTitularidade\",\n        \"SI_BankType__c\": \"BancoDigital\",\n        \"SI_BankBranch__c\": \"0001\",\n        \"SI_BankAccount__c\": \"123456-7\",\n        \"SI_DocumentType__c\": \"CNH\"\n      }\n    },\n    {\n      \"referenceId\": \"item1\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/CaseMember__c\",\n      \"body\": {\n        \"Name\": \"João Souza\",\n        \"ExternalId__c\": \"12345678901\",\n        \"Type__c\": \"Landlord\",\n        \"MemberSource__c\": \"Cognito\",\n        \"Case__c\": \"@{refPai.id}\"\n      }\n    },\n    {\n      \"referenceId\": \"registroCriado\",\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}/@{refPai.id}?fields=Id,CaseNumber,Status,CreatedDate\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/composite",
@@ -586,7 +586,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"formId\": \"a0xFORM\",\n  \"recordType\": { \"Id\": \"012DEMO\", \"Name\": \"Alteração de Dados Bancários\" },\n  \"schema\": [\n    {\n      \"QualifiedApiName\": \"SI_RequesterType__c\",\n      \"Label\": \"Selecione o seu usuário\",\n      \"DataType\": \"picklist\",\n      \"IsNillable\": true,\n      \"IsCreatable\": true,\n      \"DurableId\": \"Case.SI_RequesterType__c\"\n    },\n    {\n      \"QualifiedApiName\": \"SI_PartnerCPF__c\",\n      \"Label\": \"CPF do parceiro\",\n      \"DataType\": \"string\",\n      \"Length\": 14,\n      \"InlineHelpText\": \"Caso o dígito seja X, inserir 0 no lugar.\",\n      \"IsNillable\": true,\n      \"IsCreatable\": true,\n      \"DurableId\": \"Case.SI_PartnerCPF__c\"\n    }\n  ],\n  \"dependentes\": [],\n  \"picklists\": {\n    \"picklistFieldValues\": {\n      \"SI_RequesterType__c\": {\n        \"controllerValues\": {},\n        \"values\": [\n          { \"value\": \"Proprietario\", \"label\": \"Proprietário\", \"validFor\": [] },\n          { \"value\": \"Parceiro\", \"label\": \"Parceiro\", \"validFor\": [] }\n        ]\n      }\n    }\n  },\n  \"spec\": [\n    {\n      \"Id\": \"a0xFORM\",\n      \"RecordType\": { \"DeveloperName\": \"Form\" },\n      \"Name\": \"Alteração de dados bancários\",\n      \"ObjectApiName__c\": \"Case\",\n      \"TargetRecordTypeDevName__c\": \"SI_Demo_BankDataChange\",\n      \"CaseType__c\": \"BankDataChange\",\n      \"Channel__c\": \"ONLINE\"\n    },\n    {\n      \"Id\": \"a0xSEC1\",\n      \"RecordType\": { \"DeveloperName\": \"Section\" },\n      \"Form__c\": \"a0xFORM\",\n      \"Name\": \"Identificação\",\n      \"Sort__c\": 1\n    },\n    {\n      \"Id\": \"a0xF1\",\n      \"RecordType\": { \"DeveloperName\": \"Field\" },\n      \"Form__c\": \"a0xFORM\",\n      \"Parent__c\": \"a0xSEC1\",\n      \"Sort__c\": 1,\n      \"FieldApiName__c\": \"SI_RequesterType__c\",\n      \"IsRequired__c\": true\n    },\n    {\n      \"Id\": \"a0xF2\",\n      \"RecordType\": { \"DeveloperName\": \"Field\" },\n      \"Form__c\": \"a0xFORM\",\n      \"Parent__c\": \"a0xSEC1\",\n      \"Sort__c\": 2,\n      \"FieldApiName__c\": \"SI_PartnerCPF__c\",\n      \"Width__c\": \"HALF\"\n    },\n    {\n      \"Id\": \"a0xR1\",\n      \"RecordType\": { \"DeveloperName\": \"Rule\" },\n      \"Form__c\": \"a0xFORM\",\n      \"Parent__c\": \"a0xF2\",\n      \"Sort__c\": 1,\n      \"ConditionFieldApiName__c\": \"SI_RequesterType__c\",\n      \"Operator__c\": \"EQUALS\",\n      \"Value__c\": \"Parceiro\",\n      \"ValueSource__c\": \"LITERAL\",\n      \"Effect__c\": \"REQUIRE\"\n    }\n  ]\n}"
+              "raw": "{\n  \"formId\": \"a0xFORM\",\n  \"recordType\": { \"Id\": \"012DEMO\", \"Name\": \"Alteração de Dados Bancários\" },\n  \"schema\": [\n    {\n      \"QualifiedApiName\": \"SI_RequesterType__c\",\n      \"Label\": \"Selecione o seu usuário\",\n      \"DataType\": \"picklist\",\n      \"IsNillable\": true,\n      \"IsCreatable\": true,\n      \"DurableId\": \"Case.SI_RequesterType__c\"\n    },\n    {\n      \"QualifiedApiName\": \"SI_PartnerCPF__c\",\n      \"Label\": \"CPF do parceiro\",\n      \"DataType\": \"string\",\n      \"Length\": 14,\n      \"InlineHelpText\": \"Caso o dígito seja X, inserir 0 no lugar.\",\n      \"IsNillable\": true,\n      \"IsCreatable\": true,\n      \"DurableId\": \"Case.SI_PartnerCPF__c\"\n    }\n  ],\n  \"dependentes\": [],\n  \"picklists\": {\n    \"picklistFieldValues\": {\n      \"SI_RequesterType__c\": {\n        \"controllerValues\": {},\n        \"values\": [\n          { \"value\": \"Proprietario\", \"label\": \"Proprietário\", \"validFor\": [] },\n          { \"value\": \"Parceiro\", \"label\": \"Parceiro\", \"validFor\": [] }\n        ]\n      }\n    }\n  },\n  \"spec\": [\n    {\n      \"Id\": \"a0xFORM\",\n      \"RecordType\": { \"DeveloperName\": \"Form\" },\n      \"Name\": \"Alteração de dados bancários\",\n      \"ObjectApiName__c\": \"Case\",\n      \"TargetRecordTypeDevName__c\": \"SI_Demo_BankDataChange\",\n      \"TypeFieldApiName__c\": \"Type\",\n      \"TypeValue__c\": \"BankDataChange\",\n      \"Channel__c\": \"ONLINE\"\n    },\n    {\n      \"Id\": \"a0xSEC1\",\n      \"RecordType\": { \"DeveloperName\": \"Section\" },\n      \"Form__c\": \"a0xFORM\",\n      \"Name\": \"Identificação\",\n      \"Sort__c\": 1\n    },\n    {\n      \"Id\": \"a0xF1\",\n      \"RecordType\": { \"DeveloperName\": \"Field\" },\n      \"Form__c\": \"a0xFORM\",\n      \"Parent__c\": \"a0xSEC1\",\n      \"Sort__c\": 1,\n      \"FieldApiName__c\": \"SI_RequesterType__c\",\n      \"IsRequired__c\": true\n    },\n    {\n      \"Id\": \"a0xF2\",\n      \"RecordType\": { \"DeveloperName\": \"Field\" },\n      \"Form__c\": \"a0xFORM\",\n      \"Parent__c\": \"a0xSEC1\",\n      \"Sort__c\": 2,\n      \"FieldApiName__c\": \"SI_PartnerCPF__c\",\n      \"Width__c\": \"HALF\"\n    },\n    {\n      \"Id\": \"a0xR1\",\n      \"RecordType\": { \"DeveloperName\": \"Rule\" },\n      \"Form__c\": \"a0xFORM\",\n      \"Parent__c\": \"a0xF2\",\n      \"Sort__c\": 1,\n      \"ConditionFieldApiName__c\": \"SI_RequesterType__c\",\n      \"Operator__c\": \"EQUALS\",\n      \"Value__c\": \"Parceiro\",\n      \"ValueSource__c\": \"LITERAL\",\n      \"Effect__c\": \"REQUIRE\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{bffUrl}}/api/traduzir",
@@ -882,7 +882,7 @@
           }
         },
         {
-          "name": "Descrever SI_FormSpec__c",
+          "name": "Descrever FormDefinition__c",
           "request": {
             "method": "GET",
             "header": [],
@@ -900,7 +900,7 @@
                 "describe"
               ]
             },
-            "description": "Os campos e os Record Types do objeto de definição. Útil para conferir se o deploy chegou completo — em especial os sete Record Types e os valores de `Effect__c` (`SHOW`, `REQUIRE`, `BLOCK`)."
+            "description": "Os campos e os Record Types do objeto de definição. Útil para conferir se o deploy chegou completo — em especial os oito Record Types (Form, Section, RepeatingSection, Field, Reference, Attachment, Content, Rule) e os valores de `Effect__c` (`SHOW`, `REQUIRE`, `BLOCK`)."
           }
         },
         {
@@ -942,6 +942,541 @@
             },
             "description": "**A chamada de diagnóstico de FLS.**\n\n`IsCreatable` é avaliado para o usuário autenticado. Se um campo que existe em Setup **não** aparece aqui, é FLS — e é exatamente o que faz a REST responder `No such column` numa consulta que o cita.\n\nA mensagem não menciona permissão em momento nenhum, e a conclusão errada (\"o campo não existe\") é a mais natural. Rode isto antes de investigar qualquer outra hipótese."
           }
+        }
+      ]
+    },
+    {
+      "name": "06 · Por Record Type",
+      "description": "A definição é uma tabela só; cada linha usa as colunas do seu Record Type. Estas consultas mostram, para o formulário em `formId`, exatamente o que cada tipo de linha carrega. Referência de campos: `docs/FormDefinition-Guia-SI.md`.\n\nA primeira (catálogo) não depende de `formId`; grava o Id da raiz ativa de `bank_data_change` na variável para as seguintes.",
+      "item": [
+        {
+          "name": "00 · Catálogo · raízes ativas",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, FormKey__c, PublicLabel__c, Description__c, Channel__c, ObjectApiName__c, TargetRecordTypeDevName__c FROM {{specObject}} WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, FormKey__c, PublicLabel__c, Description__c, Channel__c, ObjectApiName__c, TargetRecordTypeDevName__c FROM {{specObject}} WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name"
+                }
+              ]
+            },
+            "description": "Uma linha por formulário: só a versão `ACTIVE` de cada `FormKey__c`. É a consulta que o canal faz ao abrir. Guarda o Id da primeira raiz em `formId`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "const raiz = (r.records || []).find((x) => x.FormKey__c === 'bank_data_change') || (r.records || [])[0];",
+                  "if (raiz) { pm.collectionVariables.set('formId', raiz.Id); pm.collectionVariables.set('formKey', raiz.FormKey__c); pm.collectionVariables.set('recordTypeDevName', raiz.TargetRecordTypeDevName__c || ''); console.log('formId = ' + raiz.Id + ' (' + raiz.FormKey__c + ')'); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "01 · Definição para o front",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, IsActive__c, FormKey__c, PublicLabel__c, Description__c, Channel__c, ObjectApiName__c, TargetRecordTypeDevName__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsRequired__c, IsReadOnly__c, IsHidden__c, Width__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, ConditionFieldApiName__c, Operator__c, Value__c, ValueSource__c, Effect__c, ChildObjectApiName__c, MinItems__c, MaxItems__c, ItemLabel__c, AddButtonText__c, FilterLogicType__c, FilterLogic__c, RequiredLogicType__c, ValidationLogicType__c, Message__c, Body__c, ReferenceType__c, ReferenceObjectApiName__c, ExternalIdFieldApiName__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true ORDER BY Sort__c NULLS FIRST, Name",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, IsActive__c, FormKey__c, PublicLabel__c, Description__c, Channel__c, ObjectApiName__c, TargetRecordTypeDevName__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsRequired__c, IsReadOnly__c, IsHidden__c, Width__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, ConditionFieldApiName__c, Operator__c, Value__c, ValueSource__c, Effect__c, ChildObjectApiName__c, MinItems__c, MaxItems__c, ItemLabel__c, AddButtonText__c, FilterLogicType__c, FilterLogic__c, RequiredLogicType__c, ValidationLogicType__c, Message__c, Body__c, ReferenceType__c, ReferenceObjectApiName__c, ExternalIdFieldApiName__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true ORDER BY Sort__c NULLS FIRST, Name"
+                }
+              ]
+            },
+            "description": "Tudo que a tela precisa, numa ida: só colunas de renderização. Colunas de submit e internas ficam de fora de propósito (ver o guia, coluna Uso)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 · Dados do submit",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, RecordType.DeveloperName, Parent__c, Form__c, FormKey__c, VersionKey__c, ObjectApiName__c, VersionFieldApiName__c, FieldApiName__c, DefaultValue__c, IsHidden__c, IsReadOnly__c, ChildObjectApiName__c, ChildRelationshipField__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true AND RecordType.DeveloperName IN ('Form', 'RepeatingSection', 'Field', 'Reference')",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, RecordType.DeveloperName, Parent__c, Form__c, FormKey__c, VersionKey__c, ObjectApiName__c, VersionFieldApiName__c, FieldApiName__c, DefaultValue__c, IsHidden__c, IsReadOnly__c, ChildObjectApiName__c, ChildRelationshipField__c FROM {{specObject}} WHERE (Id = '{{formId}}' OR Form__c = '{{formId}}') AND IsActive__c = true AND RecordType.DeveloperName IN ('Form', 'RepeatingSection', 'Field', 'Reference')"
+                }
+              ]
+            },
+            "description": "Só o que o back-end precisa para montar o envio: objeto, campo da versão, campos ocultos com valor fixo, listas. Referências vão como texto no próprio campo. Record Type, tipo, prioridade e fila são aplicados dentro do Salesforce a partir da chave da versão — não entram aqui nem no payload."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 · Form · todas as versões da chave",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, FormKey__c, VersionKey__c, IsActive__c, PublicLabel__c, Description__c, Channel__c, ObjectApiName__c, TargetRecordTypeDevName__c, VersionFieldApiName__c FROM {{specObject}} WHERE RecordType.DeveloperName = 'Form' AND FormKey__c = '{{formKey}}' ORDER BY VersionKey__c",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, FormKey__c, VersionKey__c, IsActive__c, PublicLabel__c, Description__c, Channel__c, ObjectApiName__c, TargetRecordTypeDevName__c, VersionFieldApiName__c FROM {{specObject}} WHERE RecordType.DeveloperName = 'Form' AND FormKey__c = '{{formKey}}' ORDER BY VersionKey__c"
+                }
+              ]
+            },
+            "description": "As versões de `formKey` (gravada pela consulta 00). Só a que tem `IsActive__c = true` é servida."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 · Section",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, Sort__c, FilterLogicType__c, FilterLogic__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Section' AND IsActive__c = true ORDER BY Sort__c",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, Sort__c, FilterLogicType__c, FilterLogic__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Section' AND IsActive__c = true ORDER BY Sort__c"
+                }
+              ]
+            },
+            "description": "Agrupamentos. `FilterLogicType__c`/`FilterLogic__c` dizem como as regras SHOW filhas se combinam."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 · RepeatingSection",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, Sort__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c, ItemLabel__c, AddButtonText__c, FilterLogicType__c, FilterLogic__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'RepeatingSection' AND IsActive__c = true ORDER BY Sort__c",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, Sort__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c, ItemLabel__c, AddButtonText__c, FilterLogicType__c, FilterLogic__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'RepeatingSection' AND IsActive__c = true ORDER BY Sort__c"
+                }
+              ]
+            },
+            "description": "Listas. Os campos filhos endereçam `ChildObjectApiName__c`, não o objeto do formulário."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 · Field",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, Parent__c, Sort__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsRequired__c, IsReadOnly__c, IsHidden__c, Width__c, FilterLogicType__c, FilterLogic__c, RequiredLogicType__c, ValidationLogicType__c, Message__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Field' AND IsActive__c = true ORDER BY Parent__c, Sort__c",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, Parent__c, Sort__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsRequired__c, IsReadOnly__c, IsHidden__c, Width__c, FilterLogicType__c, FilterLogic__c, RequiredLogicType__c, ValidationLogicType__c, Message__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Field' AND IsActive__c = true ORDER BY Parent__c, Sort__c"
+                }
+              ]
+            },
+            "description": "Campos. Rótulo, tipo e tamanho não estão aqui: vêm do schema pelo `FieldApiName__c`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 · Attachment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, Parent__c, Sort__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, IsRequired__c, Width__c, FilterLogicType__c, FilterLogic__c, RequiredLogicType__c, ValidationLogicType__c, Message__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Attachment' AND IsActive__c = true ORDER BY Parent__c, Sort__c",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, Parent__c, Sort__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, IsRequired__c, Width__c, FilterLogicType__c, FilterLogic__c, RequiredLogicType__c, ValidationLogicType__c, Message__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Attachment' AND IsActive__c = true ORDER BY Parent__c, Sort__c"
+                }
+              ]
+            },
+            "description": "Documentos exigidos, como componentes posicionados."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08 · Content",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, Parent__c, Sort__c, Body__c, Width__c, FilterLogicType__c, FilterLogic__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Content' AND IsActive__c = true ORDER BY Parent__c, Sort__c",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, Parent__c, Sort__c, Body__c, Width__c, FilterLogicType__c, FilterLogic__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Content' AND IsActive__c = true ORDER BY Parent__c, Sort__c"
+                }
+              ]
+            },
+            "description": "Blocos de texto. `Body__c` é HTML."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "09 · Rule",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, Parent__c, Sort__c, ConditionFieldApiName__c, Operator__c, Value__c, ValueSource__c, Effect__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Rule' AND IsActive__c = true ORDER BY Parent__c, Effect__c, Sort__c",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, Parent__c, Sort__c, ConditionFieldApiName__c, Operator__c, Value__c, ValueSource__c, Effect__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Rule' AND IsActive__c = true ORDER BY Parent__c, Effect__c, Sort__c"
+                }
+              ]
+            },
+            "description": "Condições. `Parent__c` é o alvo; o modo de combinação e a mensagem ficam no alvo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10 · Reference",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, Parent__c, Sort__c, ReferenceType__c, FieldApiName__c, ReferenceObjectApiName__c, ExternalIdFieldApiName__c, LabelOverride__c, HelpTextOverride__c, IsRequired__c, Width__c, FilterLogicType__c, FilterLogic__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Reference' AND IsActive__c = true ORDER BY Parent__c, Sort__c",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, Parent__c, Sort__c, ReferenceType__c, FieldApiName__c, ReferenceObjectApiName__c, ExternalIdFieldApiName__c, LabelOverride__c, HelpTextOverride__c, IsRequired__c, Width__c, FilterLogicType__c, FilterLogic__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Reference' AND IsActive__c = true ORDER BY Parent__c, Sort__c"
+                }
+              ]
+            },
+            "description": "Campos em que o usuário ESCOLHE um registro de outro objeto. O id externo vai como texto em `FieldApiName__c`; o Salesforce resolve o lookup depois, sem travar a criação."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11 · Referências disponíveis (metadado)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT MasterLabel, ApiName__c, SourceObjectApiName__c, SourceFieldApiName__c, ReferenceObjectApiName__c, ExternalIdFieldApiName__c, TargetLookupApiName__c FROM FormBuilderAllowlist__mdt WHERE Category__c = 'Reference' AND IsActive__c = true ORDER BY SourceObjectApiName__c, MasterLabel",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT MasterLabel, ApiName__c, SourceObjectApiName__c, SourceFieldApiName__c, ReferenceObjectApiName__c, ExternalIdFieldApiName__c, TargetLookupApiName__c FROM FormBuilderAllowlist__mdt WHERE Category__c = 'Reference' AND IsActive__c = true ORDER BY SourceObjectApiName__c, MasterLabel"
+                }
+              ]
+            },
+            "description": "Por objeto: a entidade, o campo de texto que a recebe, onde ela vive, qual id externo, e o lookup que o Salesforce preenche."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
         }
       ]
     }

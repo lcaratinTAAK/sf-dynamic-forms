@@ -125,6 +125,12 @@ const PAPEIS = [
     guarda: 'campo, operador, valor, origem do valor e EFEITO — filha do componente que afeta',
     filhos: '—',
   },
+  {
+    rt: 'Reference',
+    o: 'um campo que aponta para outro registro',
+    guarda: 'a entidade (ReferenceType__c) e o campo de texto que recebe o id externo; objeto e chave externa copiados do allowlist. Mesmas regras e largura de um Field',
+    filhos: 'regras',
+  },
 ];
 
 /** Os três efeitos de regra. Mesma máquina de filtros, três destinos. */
