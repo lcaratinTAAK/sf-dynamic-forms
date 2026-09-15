@@ -193,6 +193,28 @@ export function suportaDemo(contract) {
   return FORM_SCENARIOS.some((fs) => fs.matches(contract));
 }
 
+/**
+ * Um id externo de exemplo por entidade de `Reference`. Os cenários acima
+ * são por formulário e não sabem quais referências o operador arrastou para
+ * o layout; aqui o campo é preenchido pela entidade, para o botão de teste
+ * não deixar uma referência obrigatória vazia.
+ */
+const ID_EXTERNO_DEMO = {
+  CONTRACT: 'ctr_8821',
+  PROPERTY: 'prop_1042',
+};
+
+const referenciasDemo = (contract) =>
+  Object.fromEntries(
+    contract.sections
+      .flatMap((s) => s.fields)
+      .filter((f) => f.kind === 'reference')
+      .map((f) => [f.apiName, ID_EXTERNO_DEMO[f.reference?.type] ?? `ext_${f.reference?.type ?? 'ref'}_0001`.toLowerCase()])
+  );
+
 export function cenariosPara(contract) {
-  return FORM_SCENARIOS.find((fs) => fs.matches(contract))?.scenarios ?? [];
+  const scenarios = FORM_SCENARIOS.find((fs) => fs.matches(contract))?.scenarios ?? [];
+  const refs = referenciasDemo(contract);
+  if (!Object.keys(refs).length) return scenarios;
+  return scenarios.map((c) => ({ ...c, values: { ...refs, ...c.values } }));
 }
