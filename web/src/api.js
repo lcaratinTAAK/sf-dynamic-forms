@@ -40,6 +40,13 @@ export async function submit(contract, values) {
   return json;
 }
 
+/**
+ * Milestones de SLA do caso gerado. `via` = 'submission' busca pelo registro do
+ * formulário (Case.RelatedCaseFormSubmission__c); 'case', pelo CaseId.
+ */
+export const getSla = (via, id) =>
+  get(`/api/sla?${new URLSearchParams({ [via === 'case' ? 'caseId' : 'submissionId']: id })}`);
+
 /** Repete uma das chamadas do BFF e devolve o retorno cru, sem afetar a tela. */
 export async function replay(path, replayId) {
   const res = await fetch('/api/replay', {

@@ -150,6 +150,7 @@ como código seria injeção.
 | `POST /api/create-record` | cria de verdade |
 | `POST /api/replay` | reexecuta uma chamada e devolve peso e tempo |
 | `POST /api/traduzir` | converte retornos do Salesforce no contrato **sem tocar na org** |
+| `GET /api/sla` | SLAs do caso gerado pelo envio — `?submissionId=` ou `?caseId=` |
 
 `GET /api/form` recebe `source` e o identificador correspondente:
 
@@ -169,6 +170,7 @@ server/
   salesforce.js    autenticação e chamadas — o único lugar que fala com a org
   contract.js      o contrato e o avaliador de regras
   config.js        leitura do .env
+  sla.js           os tipos de milestone que contam como SLA
   adapters/        uma fonte por arquivo
 web/
   src/
@@ -179,13 +181,14 @@ web/
       Inspector.jsx        as chamadas feitas, com envio e retorno
       Info.jsx             comparativo das abordagens
       InfoCustom.jsx       a solução escolhida, em detalhe
+      SlaPanel.jsx         os SLAs do caso gerado, depois de criar
   public/prints/           capturas do configurador e do formulário
 postman/                   a coleção e o environment de exemplo
 docs/                      notas de decisão
 fixtures/                  payloads capturados, para rodar sem org
 scripts/
   offline-check.js         verificação sem org
-  peek-*.mjs               sondas de investigação (28) — cada uma responde
+  peek-*.mjs               sondas de investigação (29) — cada uma responde
                            uma pergunta que apareceu no caminho
 ```
 
@@ -204,6 +207,22 @@ o que voltou, o peso e o tempo. Não é enfeite: foi assim que descobrimos que
 
 O `POST /api/replay` reexecuta qualquer chamada da lista, para medir sem
 recarregar a página.
+
+---
+
+## O SLA do caso gerado
+
+O envio cria o registro do formulário; o Caso nasce depois, por automação, com
+o Id do envio em `Case.RelatedCaseFormSubmission__c`, e o processo de direito
+dele cria os `CaseMilestone`. Depois de **Criar registro no Salesforce**, o
+painel *SLAs de atendimento do caso gerado* busca esses milestones sozinho, por
+um de dois caminhos: pelo envio (o Id que a criação devolveu) ou pelo Caso
+(`CaseId`). Os dois Ids são editáveis, então dá para testar com qualquer envio
+ou Caso da org sem criar nada.
+
+A rota é `GET /api/sla`, os tipos que contam como SLA estão em `server/sla.js`,
+e a consulta está documentada na aba **Solução Custom** e na seção 13 do
+`docs/FormDefinition-Guia-SI.md`.
 
 ---
 
@@ -231,7 +250,7 @@ envelhecem — vale refazê-las junto.
 
 ## A coleção Postman
 
-`postman/` traz as chamadas em seis pastas, com um *environment* de exemplo.
+`postman/` traz as chamadas em oito pastas, com um *environment* de exemplo.
 A coleção roda de cima para baixo: cada pasta grava nas variáveis o que a
 próxima precisa.
 

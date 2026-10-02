@@ -567,6 +567,15 @@
   margin-top: 18px;
 }
 
+/* --- SLA do caso gerado ---------------------------------------------------- */
+
+/* Aqui o bloco de código é para copiar: a consulta inteira, o retorno inteiro.
+   O teto de altura do inspetor cortaria justamente a lista de tipos. */
+.info-custom pre.json.small {
+  max-height: none;
+  margin: 14px 0;
+}
+
 /* --- prints ---------------------------------------------------------------- */
 
 .info-custom .print {

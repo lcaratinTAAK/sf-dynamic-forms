@@ -179,4 +179,20 @@ POST /api/replay          { "path": "/ui-api/object-info/Case" }
 POST /api/replay          { "path": "...", "replayId": "catalog:SCREEN_FLOW" }
 POST /api/submit          { "contract": {...}, "values": {...} }
 POST /api/create-record   { "contract": {...}, "values": {...} }
+GET  /api/sla?submissionId=a1B...         SLA do caso gerado, pelo registro do envio
+GET  /api/sla?caseId=500...               o mesmo, pelo Caso
 ```
+
+## SLA do caso gerado
+
+Uma SOQL. O `FIELDS(ALL)` não traz relacionamento, então o nome do tipo vai
+pedido ao lado. A lista de tipos está em `server/sla.js`.
+
+```
+SELECT FIELDS(ALL), MilestoneType.Name FROM CaseMilestone
+WHERE Case.RelatedCaseFormSubmission__c = :submissionId     -- ou: CaseId = :caseId
+  AND MilestoneType.Name IN (...)
+LIMIT 200                                                  -- obrigatório com FIELDS(ALL)
+```
+
+Detalhe e retorno: seção 13 de `FormDefinition-Guia-SI.md`.

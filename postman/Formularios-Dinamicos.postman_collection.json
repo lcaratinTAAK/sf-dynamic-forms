@@ -89,6 +89,16 @@
       "key": "formKey",
       "value": "",
       "description": "Preenchido pela chamada 00 (catálogo)."
+    },
+    {
+      "key": "submissionId",
+      "value": "",
+      "description": "Id do registro criado no submit (pasta 02, ou colado à mão)."
+    },
+    {
+      "key": "caseId",
+      "value": "",
+      "description": "Preenchido pela chamada 07 · A."
     }
   ],
   "item": [
@@ -385,9 +395,15 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "// Environment vence collection na resolução do Postman — escreve-se onde vai ser lido.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
                   "pm.test('201', () => pm.response.to.have.status(201));",
                   "const j = pm.response.json();",
-                  "if (j.id) console.log('Caso criado: ' + j.id);"
+                  "if (j.id) console.log('Caso criado: ' + j.id);",
+                  "// O Id criado é o que a pasta 07 consulta: o SLA nasce do registro do envio.",
+                  "if (j.id) guardar('submissionId', j.id);"
                 ]
               }
             }
@@ -428,6 +444,10 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "// Environment vence collection na resolução do Postman — escreve-se onde vai ser lido.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
                   "pm.test('200', () => pm.response.to.have.status(200));",
                   "const partes = pm.response.json().compositeResponse || [];",
                   "",
@@ -448,6 +468,8 @@
                   "  console.error('falha RAIZ: ' + JSON.stringify((raiz || falhas[0]).body));",
                   "} else {",
                   "  const criado = partes.find((p) => p.referenceId === 'registroCriado');",
+                  "  const pai = partes[0];",
+                  "  if (pai?.body?.id) guardar('submissionId', pai.body.id); // consultado pela pasta 07",
                   "  console.log('Caso ' + (criado?.body?.CaseNumber || '?') + ' criado com ' + (partes.length - 2) + ' item(ns).');",
                   "}",
                   "",
@@ -1556,6 +1578,194 @@
                   "pm.test('200', () => pm.response.to.have.status(200));",
                   "const r = pm.response.json();",
                   "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 · SLA do caso gerado",
+      "description": "Depois do submit: os milestones de SLA do Caso que o envio gerou.\n\nO submit cria o **registro do formulário**. Uma automação cria o Caso com o Id desse registro em `Case.RelatedCaseFormSubmission__c`, e o processo de direito do Caso cria os `CaseMilestone`. O SLA é o milestone cujo `MilestoneType.Name` está na lista de tipos (`server/sla.js`).\n\n| | filtra por | quando usar |\n| :-- | :-- | :-- |\n| **A** | `Case.RelatedCaseFormSubmission__c = {{submissionId}}` | logo depois do submit, com o Id que o POST devolveu |\n| **B** | `CaseId = {{caseId}}` | quando o Caso já é conhecido — a A grava `caseId` para esta |\n\n`FIELDS(ALL)` exige `LIMIT` ≤ 200 e não traz relacionamento: o nome do tipo vem porque a consulta pede `MilestoneType.Name` ao lado. A **C** confere quais tipos da lista existem na org. Referência completa: seção 13 de `docs/FormDefinition-Guia-SI.md`.\n\n**Zero registros logo depois do submit não é erro**: o Caso nasce por automação e só ganha milestone se entrar num processo de direito.",
+      "item": [
+        {
+          "name": "A · pelo envio · RelatedCaseFormSubmission__c",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT FIELDS(ALL), MilestoneType.Name FROM CaseMilestone WHERE Case.RelatedCaseFormSubmission__c = '{{submissionId}}' AND MilestoneType.Name IN ('Agents', 'SLA de atendimento', 'SLA de atendimento - Closing - Anexos, Aditivos, Docs e Preferências', 'SLA de atendimento - FR', 'Reparos - Incêndio - 5 dias', 'GeneralPreContractRequirements', 'GeneralPreContractRequirements - 25 dias', 'ListingQuality 2 Dias SLA', 'Photos - SLA - 1 day', 'Photos - SLA - 2 days', 'Photography - SLA - 1 day', 'Placas - Agendamento - SLA - 2 dias', 'Lockbox - Logistica - SLA - 1 dia', 'Reembolso de Reparos - SLA - 2 Dias', 'Reparos - Contestação de responsibillidade ou criticidade - SLA - 3 Dias', 'Reparos – Vistoriador Danificou o Imóvel', 'SLA Total do Atendimento - Comum', 'SLA Total do Atendimento - Emergencial', 'SLA Total do Atendimento - Urgente') LIMIT 200",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT FIELDS(ALL), MilestoneType.Name FROM CaseMilestone WHERE Case.RelatedCaseFormSubmission__c = '{{submissionId}}' AND MilestoneType.Name IN ('Agents', 'SLA de atendimento', 'SLA de atendimento - Closing - Anexos, Aditivos, Docs e Preferências', 'SLA de atendimento - FR', 'Reparos - Incêndio - 5 dias', 'GeneralPreContractRequirements', 'GeneralPreContractRequirements - 25 dias', 'ListingQuality 2 Dias SLA', 'Photos - SLA - 1 day', 'Photos - SLA - 2 days', 'Photography - SLA - 1 day', 'Placas - Agendamento - SLA - 2 dias', 'Lockbox - Logistica - SLA - 1 dia', 'Reembolso de Reparos - SLA - 2 Dias', 'Reparos - Contestação de responsibillidade ou criticidade - SLA - 3 Dias', 'Reparos – Vistoriador Danificou o Imóvel', 'SLA Total do Atendimento - Comum', 'SLA Total do Atendimento - Emergencial', 'SLA Total do Atendimento - Urgente') LIMIT 200"
+                }
+              ]
+            },
+            "description": "O caminho do SI logo depois do submit: `submissionId` é o Id que o POST de criação devolveu. O filtro atravessa o lookup do Caso, então não é preciso conhecer o Caso. Cada milestone volta com `CaseId`, que esta requisição grava na variável para a B."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Environment vence collection na resolução do Postman — escreve-se onde vai ser lido.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' milestone(s)' + (r.totalSize ? '' : ' — vazio logo depois do envio é esperado: o Caso nasce por automação'));",
+                  "r.records.forEach((m) => console.log(m.MilestoneType.Name + ' · prazo ' + m.TargetDate + ' · ' + (m.IsCompleted ? 'concluído' : m.IsViolated ? 'VIOLADO' : 'em andamento')));",
+                  "if (r.records[0]) guardar('caseId', r.records[0].CaseId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "B · pelo Caso · CaseId",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT FIELDS(ALL), MilestoneType.Name FROM CaseMilestone WHERE CaseId = '{{caseId}}' AND MilestoneType.Name IN ('Agents', 'SLA de atendimento', 'SLA de atendimento - Closing - Anexos, Aditivos, Docs e Preferências', 'SLA de atendimento - FR', 'Reparos - Incêndio - 5 dias', 'GeneralPreContractRequirements', 'GeneralPreContractRequirements - 25 dias', 'ListingQuality 2 Dias SLA', 'Photos - SLA - 1 day', 'Photos - SLA - 2 days', 'Photography - SLA - 1 day', 'Placas - Agendamento - SLA - 2 dias', 'Lockbox - Logistica - SLA - 1 dia', 'Reembolso de Reparos - SLA - 2 Dias', 'Reparos - Contestação de responsibillidade ou criticidade - SLA - 3 Dias', 'Reparos – Vistoriador Danificou o Imóvel', 'SLA Total do Atendimento - Comum', 'SLA Total do Atendimento - Emergencial', 'SLA Total do Atendimento - Urgente') LIMIT 200",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT FIELDS(ALL), MilestoneType.Name FROM CaseMilestone WHERE CaseId = '{{caseId}}' AND MilestoneType.Name IN ('Agents', 'SLA de atendimento', 'SLA de atendimento - Closing - Anexos, Aditivos, Docs e Preferências', 'SLA de atendimento - FR', 'Reparos - Incêndio - 5 dias', 'GeneralPreContractRequirements', 'GeneralPreContractRequirements - 25 dias', 'ListingQuality 2 Dias SLA', 'Photos - SLA - 1 day', 'Photos - SLA - 2 days', 'Photography - SLA - 1 day', 'Placas - Agendamento - SLA - 2 dias', 'Lockbox - Logistica - SLA - 1 dia', 'Reembolso de Reparos - SLA - 2 Dias', 'Reparos - Contestação de responsibillidade ou criticidade - SLA - 3 Dias', 'Reparos – Vistoriador Danificou o Imóvel', 'SLA Total do Atendimento - Comum', 'SLA Total do Atendimento - Emergencial', 'SLA Total do Atendimento - Urgente') LIMIT 200"
+                }
+              ]
+            },
+            "description": "A mesma consulta, filtrando pelo campo do próprio `CaseMilestone`. O campo é `CaseId` — `WHERE Case = ...` não compila. Logo depois do submit o SI não tem esse Id; a A o grava em `caseId`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' milestone(s)' + (r.totalSize ? '' : ' — vazio logo depois do envio é esperado: o Caso nasce por automação'));",
+                  "r.records.forEach((m) => console.log(m.MilestoneType.Name + ' · prazo ' + m.TargetDate + ' · ' + (m.IsCompleted ? 'concluído' : m.IsViolated ? 'VIOLADO' : 'em andamento')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "C · conferência dos tipos · MilestoneType",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name FROM MilestoneType WHERE Name IN ('Agents', 'SLA de atendimento', 'SLA de atendimento - Closing - Anexos, Aditivos, Docs e Preferências', 'SLA de atendimento - FR', 'Reparos - Incêndio - 5 dias', 'GeneralPreContractRequirements', 'GeneralPreContractRequirements - 25 dias', 'ListingQuality 2 Dias SLA', 'Photos - SLA - 1 day', 'Photos - SLA - 2 days', 'Photography - SLA - 1 day', 'Placas - Agendamento - SLA - 2 dias', 'Lockbox - Logistica - SLA - 1 dia', 'Reembolso de Reparos - SLA - 2 Dias', 'Reparos - Contestação de responsibillidade ou criticidade - SLA - 3 Dias', 'Reparos – Vistoriador Danificou o Imóvel', 'SLA Total do Atendimento - Comum', 'SLA Total do Atendimento - Emergencial', 'SLA Total do Atendimento - Urgente')",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name FROM MilestoneType WHERE Name IN ('Agents', 'SLA de atendimento', 'SLA de atendimento - Closing - Anexos, Aditivos, Docs e Preferências', 'SLA de atendimento - FR', 'Reparos - Incêndio - 5 dias', 'GeneralPreContractRequirements', 'GeneralPreContractRequirements - 25 dias', 'ListingQuality 2 Dias SLA', 'Photos - SLA - 1 day', 'Photos - SLA - 2 days', 'Photography - SLA - 1 day', 'Placas - Agendamento - SLA - 2 dias', 'Lockbox - Logistica - SLA - 1 dia', 'Reembolso de Reparos - SLA - 2 Dias', 'Reparos - Contestação de responsibillidade ou criticidade - SLA - 3 Dias', 'Reparos – Vistoriador Danificou o Imóvel', 'SLA Total do Atendimento - Comum', 'SLA Total do Atendimento - Emergencial', 'SLA Total do Atendimento - Urgente')"
+                }
+              ]
+            },
+            "description": "Quais tipos da lista existem na org com o nome exato. Um tipo que não aparece aqui some do resultado da A e da B sem erro nenhum — travessão no lugar de hífen, acento, erro de digitação."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' de 19 tipos existem na org');",
+                  "r.records.forEach((t) => console.log(t.Id + ' · ' + t.Name));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "BFF · /api/sla",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{bffUrl}}/api/sla?submissionId={{submissionId}}",
+              "host": [
+                "{{bffUrl}}"
+              ],
+              "path": [
+                "api",
+                "sla"
+              ],
+              "query": [
+                {
+                  "key": "submissionId",
+                  "value": "{{submissionId}}"
+                },
+                {
+                  "key": "caseId",
+                  "value": "{{caseId}}",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "A rota da POC: roda a A (ou a B, com `caseId` no lugar de `submissionId` — exatamente um dos dois) e devolve os registros intactos."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "r.records.forEach((m) => console.log(m.MilestoneType.Name + ' · prazo ' + m.TargetDate));"
                 ]
               }
             }

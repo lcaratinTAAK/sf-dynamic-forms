@@ -650,3 +650,67 @@ export async function schemaEFormulario(objectApiName, { specSoql, recordTypeDev
     refeitos,
   };
 }
+
+// ---------------------------------------------------------------------------
+// SLA do caso gerado (CaseMilestone)
+// ---------------------------------------------------------------------------
+
+/** Id do Salesforce, 15 ou 18 caracteres. Guarda contra injeção em SOQL. */
+const ID_SF = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
+const literal = (s) => `'${String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+
+/**
+ * SOQL dos milestones de SLA de um caso, por um dos dois caminhos:
+ *
+ *   submissionId → WHERE Case.RelatedCaseFormSubmission__c = :id
+ *   caseId       → WHERE CaseId = :id
+ *
+ * O primeiro é o que o SI tem na mão logo depois do submit: o Id que o POST do
+ * envio devolveu. Não precisa conhecer o Caso — o filtro atravessa o lookup.
+ * O segundo pede o Id do Caso, que o SI só tem se consultar antes.
+ *
+ * Conferido no FornoV1:
+ *   - `FIELDS(ALL)` sem LIMIT é recusado inteiro (MALFORMED_QUERY), não cortado;
+ *   - `FIELDS(ALL)` não traz relacionamento, mas aceita um ao lado — é assim
+ *     que `MilestoneType.Name` vem na mesma consulta, sem buscar o nome à parte.
+ *
+ * Exposta para o diagnóstico poder MOSTRAR a query, e não só dizer que ela existe.
+ */
+export function querySla({ submissionId = null, caseId = null }) {
+  const id = submissionId ?? caseId;
+  if (!ID_SF.test(String(id ?? ''))) throw new Error(`Id inválido: ${id}`);
+  if (submissionId && !NOME_API.test(config.slaSubmissionField)) {
+    throw new Error(`SF_SLA_SUBMISSION_FIELD inválido: ${config.slaSubmissionField}`);
+  }
+
+  const porOnde = submissionId
+    ? `Case.${config.slaSubmissionField} = '${submissionId}'`
+    : `CaseId = '${caseId}'`;
+
+  return umaLinha(`
+    SELECT FIELDS(ALL), MilestoneType.Name FROM CaseMilestone
+    WHERE ${porOnde}
+      AND MilestoneType.Name IN (${config.slaMilestoneTypes.map(literal).join(', ')})
+    LIMIT 200
+  `);
+}
+
+/**
+ * Os milestones de SLA do caso gerado.
+ *
+ * Zero registros não é erro. O Caso nasce por automação depois do envio, e só
+ * tem milestone se entrou num processo de direito — logo depois do submit,
+ * vazio é o esperado em muitos casos.
+ */
+export async function buscarSla({ submissionId = null, caseId = null }) {
+  const q = querySla({ submissionId, caseId });
+  const inicio = Date.now();
+  const r = await soql(q);
+  return {
+    soql: q,
+    elapsedMs: Date.now() - inicio,
+    totalSize: r.totalSize,
+    records: r.records ?? [],
+  };
+}

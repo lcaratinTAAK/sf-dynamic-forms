@@ -941,3 +941,108 @@ dl.created.injected dt.mono {
   color: var(--text-faint);
   margin-top: 2px;
 }
+
+/* --- SLA do caso gerado ---------------------------------------------------- */
+
+.sla {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px 14px 14px;
+}
+.sla-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.sla-head strong {
+  font-size: 13px;
+}
+.sla-busca {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.sla-busca label {
+  flex-basis: 100%;
+}
+.sla-busca input {
+  flex: 1;
+  min-width: 170px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 9px;
+}
+.sla-busca input:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.sla .link {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* A SOQL leva a lista inteira de tipos: quebra a linha em vez de rolar. */
+pre.json.small.sla-soql {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  margin: 0 0 10px;
+}
+.sla-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sla-item {
+  border: 1px solid var(--border-soft);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  background: var(--surface-2);
+  padding: 9px 12px 10px;
+}
+.sla-item.is-ok { border-left-color: var(--ok); }
+.sla-item.is-warn { border-left-color: var(--warn); }
+.sla-item.is-err { border-left-color: var(--err); }
+.sla-item-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.sla-status {
+  flex-shrink: 0;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 7px;
+  border-radius: 4px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.sla-status.is-ok { color: var(--ok); background: rgba(74, 222, 128, 0.12); }
+.sla-status.is-warn { color: var(--warn); background: rgba(251, 191, 36, 0.12); }
+.sla-status.is-err { color: var(--err); background: rgba(248, 113, 113, 0.12); }
+.sla-item dd .mono {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}

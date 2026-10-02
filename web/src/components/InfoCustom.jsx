@@ -11,6 +11,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { EXEMPLO_JSON } from '../exemploTraducao.js';
+import { TIPOS_SLA } from '../../../server/sla.js';
 import '../info.css';
 import '../info-custom.css';
 
@@ -375,6 +376,7 @@ export default function InfoCustom() {
       <Contrato />
       <Tradutor />
       <Envio />
+      <Sla />
       <Operacao />
       <Aberto />
     </div>
@@ -1340,6 +1342,304 @@ function Envio() {
         etiquetados por código de documento — e, dentro de uma lista, por item — mas o envio da POC
         não cria <code>ContentVersion</code> nem roteia o arquivo para o registro filho. É a peça
         que falta entre o formulário funcionando e o formulário em produção.
+      </p>
+    </Secao>
+  );
+}
+
+/* ── 8b. Depois do envio: o SLA do caso gerado ───────────────────────────── */
+
+const SLA_IN = `MilestoneType.Name IN ( …os ${TIPOS_SLA.length} tipos abaixo… )`;
+
+const SLA_CHAMADAS = [
+  {
+    n: 'A',
+    titulo: 'Pelo envio',
+    quando: 'logo depois do submit · com o Id que o POST devolveu',
+    soql: `SELECT FIELDS(ALL), MilestoneType.Name FROM CaseMilestone\nWHERE Case.RelatedCaseFormSubmission__c = :submissionId\n  AND ${SLA_IN}\nLIMIT 200`,
+    paraQue:
+      'É o caminho natural para o SI: o Id do registro do formulário é o que a criação acabou de devolver. O filtro atravessa o lookup do Caso, então não é preciso descobrir o Caso antes.',
+    porqueAssim:
+      'Uma consulta, sem estado guardado. E cada milestone já volta com CaseId — é assim que o SI fica sabendo qual Caso nasceu do envio, sem outra ida.',
+  },
+  {
+    n: 'B',
+    titulo: 'Pelo Caso',
+    quando: 'quando o Id do Caso já é conhecido',
+    soql: `SELECT FIELDS(ALL), MilestoneType.Name FROM CaseMilestone\nWHERE CaseId = :caseId\n  AND ${SLA_IN}\nLIMIT 200`,
+    paraQue:
+      'Para quem já guardou o Caso — de uma consulta anterior, de um evento, ou quando o formulário cria o próprio Case e o Id devolvido no submit JÁ é o do Caso.',
+    porqueAssim:
+      'Filtra no campo do próprio CaseMilestone, sem atravessar relacionamento. Mas logo depois do envio o SI não tem esse Id: precisaria de SELECT Id FROM Case WHERE RelatedCaseFormSubmission__c = :submissionId antes — uma ida a mais.',
+  },
+];
+
+/** A consulta A por inteiro, para copiar. A B muda só a linha do WHERE. */
+const SLA_SOQL_COMPLETA = [
+  'SELECT FIELDS(ALL), MilestoneType.Name',
+  'FROM CaseMilestone',
+  'WHERE Case.RelatedCaseFormSubmission__c = :submissionId',
+  '  AND MilestoneType.Name IN (',
+  TIPOS_SLA.map((t) => `    '${t}'`).join(',\n'),
+  '  )',
+  'LIMIT 200',
+].join('\n');
+
+/**
+ * Retorno real, capturado no FornoV1 em 02/10/2026 — o caso 00086283, nascido
+ * de um envio de formulário. São as 27 colunas do FIELDS(ALL) mais o
+ * relacionamento pedido ao lado.
+ */
+const SLA_EXEMPLO = {
+  totalSize: 1,
+  done: true,
+  records: [
+    {
+      attributes: {
+        type: 'CaseMilestone',
+        url: '/services/data/v66.0/sobjects/CaseMilestone/555be00000uWhhhAAC',
+      },
+      MilestoneType: {
+        attributes: {
+          type: 'MilestoneType',
+          url: '/services/data/v66.0/sobjects/MilestoneType/557bL0000000NuMQAU',
+        },
+        Name: 'SLA de atendimento',
+      },
+      Id: '555be00000uWhhhAAC',
+      CaseId: '500be00000K8ULaAAN',
+      StartDate: '2026-10-01T13:59:15.000+0000',
+      TargetDate: '2026-10-08T13:59:00.000+0000',
+      CompletionDate: null,
+      MilestoneTypeId: '557bL0000000NuMQAU',
+      IsCompleted: false,
+      IsViolated: false,
+      SystemModstamp: '2026-10-01T13:59:15.000+0000',
+      CreatedDate: '2026-10-01T13:59:15.000+0000',
+      CreatedById: '005be00000GNTUuAAP',
+      LastModifiedDate: '2026-10-01T13:59:15.000+0000',
+      LastModifiedById: '005be00000GNTUuAAP',
+      IsDeleted: false,
+      TargetResponseInMins: 7200,
+      TargetResponseInHrs: 120,
+      TargetResponseInDays: 5,
+      TimeRemainingInMins: '5541:47',
+      TimeRemainingInHrs: '92:21',
+      TimeRemainingInDays: 3.8484675462962965,
+      ElapsedTimeInMins: null,
+      ElapsedTimeInHrs: null,
+      ElapsedTimeInDays: null,
+      TimeSinceTargetInMins: '00:00',
+      TimeSinceTargetInHrs: '00:00',
+      TimeSinceTargetInDays: 0,
+      BusinessHoursId: '01mbL000000AB2DQAW',
+    },
+  ],
+};
+
+const TIPO_MILESTONE = [
+  [
+    'MilestoneType.Name',
+    'string',
+    'O nome do tipo — o que diz QUAL prazo é. Não vem no FIELDS(ALL): precisa ser pedido ao lado.',
+  ],
+  ['CaseId', 'Id', 'O Caso. Na variante A, é como o SI descobre qual Caso nasceu do envio.'],
+  ['MilestoneTypeId', 'Id', 'O Id do tipo. O nome está em MilestoneType.Name.'],
+  ['StartDate', 'datetime', 'Quando o relógio começou.'],
+  ['TargetDate', 'datetime', 'O prazo. Já respeita o horário comercial de BusinessHoursId.'],
+  ['CompletionDate', 'datetime | null', 'Quando foi concluído. null enquanto estiver aberto.'],
+  ['IsCompleted', 'boolean', 'Concluído.'],
+  [
+    'IsViolated',
+    'boolean',
+    'Passou do prazo. Pode vir true junto com IsCompleted: concluído fora do prazo.',
+  ],
+  [
+    'TargetResponseInMins',
+    'number',
+    'A meta, em tempo de horário comercial; …InHrs e …InDays são a mesma meta em outra unidade. Por isso o prazo não é StartDate + meta: no exemplo, 7.200 min são 5 dias úteis, e TargetDate caiu 7 dias corridos depois. O prazo é sempre TargetDate.',
+  ],
+  [
+    'TimeRemainingInMins',
+    'string',
+    'O que falta, como TEXTO "mm:ss" — não é número. …InHrs é "hh:mm"; …InDays é número.',
+  ],
+  [
+    'TimeSinceTargetInMins',
+    'string',
+    'Há quanto tempo venceu, "mm:ss". Vem "00:00" — não null — enquanto está dentro do prazo.',
+  ],
+  ['ElapsedTimeInMins', 'number | null', 'Tempo até a conclusão. null enquanto estiver aberto.'],
+];
+
+const SLA_RETORNO_BFF = `{
+  "via": "submission",              // ou "case"
+  "id": "a1Ube000001bH4XEAU",
+  "soql": "SELECT FIELDS(ALL), MilestoneType.Name FROM CaseMilestone WHERE …",
+  "elapsedMs": 136,
+  "totalSize": 1,
+  "records": [ … ]                  // idêntico ao que a consulta A ou B devolve
+}`;
+
+function Sla() {
+  return (
+    <Secao id="sla" titulo="Depois do envio: o SLA do caso gerado" chapeu="Pós-envio">
+      <p>
+        O envio não cria o Caso — cria o <strong>registro do formulário</strong>. O Caso nasce
+        depois, por automação, com o Id do envio gravado em{' '}
+        <code>Case.RelatedCaseFormSubmission__c</code>. E é o processo de direito do Caso que cria
+        os <code>CaseMilestone</code>: um por prazo que está correndo. O SLA é o milestone cujo tipo
+        está na lista de tipos de SLA.
+      </p>
+
+      <svg
+        className="diagrama"
+        viewBox="0 0 900 176"
+        role="img"
+        aria-label="O registro do envio gera o Caso por automação, e o processo de direito do Caso gera os CaseMilestone. A variante A filtra pelo lookup do Caso; a B, pelo CaseId."
+      >
+        <defs>
+          <marker id="sla-seta" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+            <path d="M0,0 L9,4.5 L0,9 z" className="d-seta" />
+          </marker>
+        </defs>
+
+        <rect className="d-box d-destaque" x="16" y="34" width="220" height="70" rx="6" />
+        <text className="d-label" x="126" y="60" textAnchor="middle">Registro do envio</text>
+        <text className="d-sub" x="126" y="82" textAnchor="middle">o que o SI cria no submit</text>
+
+        <line className="d-linha" x1="236" y1="69" x2="318" y2="69" markerEnd="url(#sla-seta)" />
+        <text className="d-nota" x="277" y="58" textAnchor="middle">automação</text>
+
+        <rect className="d-box" x="324" y="34" width="250" height="70" rx="6" />
+        <text className="d-label" x="449" y="60" textAnchor="middle">Case</text>
+        <text className="d-mono" x="449" y="82" textAnchor="middle">RelatedCaseFormSubmission__c</text>
+
+        <line className="d-linha" x1="574" y1="69" x2="646" y2="69" markerEnd="url(#sla-seta)" />
+        <text className="d-nota" x="610" y="50" textAnchor="middle">processo</text>
+        <text className="d-nota" x="610" y="61" textAnchor="middle">de direito</text>
+
+        <rect className="d-box" x="652" y="34" width="232" height="70" rx="6" />
+        <text className="d-label" x="768" y="60" textAnchor="middle">CaseMilestone</text>
+        <text className="d-mono" x="768" y="82" textAnchor="middle">CaseId · MilestoneTypeId</text>
+
+        <text className="d-nota d-forte" x="449" y="128" textAnchor="middle">A · filtra aqui, atravessando o lookup</text>
+        <text className="d-nota d-forte" x="768" y="128" textAnchor="middle">B · filtra aqui, pelo CaseId</text>
+
+        <text className="d-rodape" x="16" y="164">
+          As duas chegam nos mesmos registros. Muda só qual Id você tem na mão.
+        </text>
+      </svg>
+
+      <div className="chamadas">
+        {SLA_CHAMADAS.map((c) => (
+          <div className="chamada" key={c.n}>
+            <div className="chamada-topo">
+              <span className="chamada-n">{c.n}</span>
+              <div className="chamada-ident">
+                <div className="chamada-titulo">{c.titulo}</div>
+                <div className="chamada-quando">{c.quando}</div>
+              </div>
+              <div className="chamada-custo">
+                <span className="verbo verbo-get">GET</span>
+                <span className="peso">/query</span>
+              </div>
+            </div>
+
+            <code className="chamada-rota">{c.soql}</code>
+
+            <div className="chamada-corpo">
+              <div className="bloco">
+                <span className="bloco-rot">Para que serve</span>
+                <p>{c.paraQue}</p>
+              </div>
+              <div className="bloco">
+                <span className="bloco-rot">Por que assim</span>
+                <p>{c.porqueAssim}</p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <h3>A consulta inteira, para copiar</h3>
+      <p>
+        É a A. Para a B, troque a linha do <code>WHERE</code> por <code>WHERE CaseId = :caseId</code>
+        . Na rede vai como <code>GET /services/data/v66.0/query?q=</code> com a SOQL
+        percent-encoded.
+      </p>
+      <pre className="json small">{SLA_SOQL_COMPLETA}</pre>
+      <p className="info-nota aviso">
+        Os nomes são comparados <strong>como estão na org</strong>, letra por letra. “Reparos –
+        Vistoriador Danificou o Imóvel” usa travessão (–), não hífen, e “responsibillidade” é a
+        grafia que existe lá. Corrigir qualquer um faz o tipo sumir do resultado sem erro nenhum. A
+        lista mora em <code>server/sla.js</code>, a mesma que o BFF consulta.
+      </p>
+
+      <h3>O que volta</h3>
+      <p>
+        O retorno padrão de <code>/query</code>: <code>totalSize</code>, <code>done</code> e um
+        registro por milestone. Este é <strong>real</strong>, capturado no FornoV1: o SLA de
+        atendimento do caso 00086283, que nasceu de um envio de formulário.
+      </p>
+      <pre className="json small">{JSON.stringify(SLA_EXEMPLO, null, 2)}</pre>
+
+      <Tipo
+        nome="CaseMilestone"
+        resumo="as colunas que importam para mostrar um prazo"
+        linhas={TIPO_MILESTONE}
+      />
+
+      <div className="aprofunda">
+        <div className="aprofunda-head">Cinco coisas que mordem</div>
+        <ul className="lista">
+          <li>
+            <code>FIELDS(ALL)</code> exige <code>LIMIT</code> de no máximo 200 na API. Sem ele a
+            consulta não é cortada — é <strong>recusada</strong> inteira, com{' '}
+            <code>MALFORMED_QUERY</code>.
+          </li>
+          <li>
+            O campo é <code>CaseId</code>, não <code>Case</code>. <code>WHERE Case = '500…'</code>{' '}
+            não compila; <code>Case.</code> só serve para atravessar o relacionamento, como na A.
+          </li>
+          <li>
+            <code>FIELDS(ALL)</code> não traz relacionamento: sozinho, o tipo volta só como{' '}
+            <code>MilestoneTypeId</code>. Com vários tipos na lista, é o nome que diz qual prazo é
+            qual — por isso as consultas acima pedem <code>MilestoneType.Name</code> ao lado. A API
+            aceita a mistura.
+          </li>
+          <li>
+            Para produção, listar as colunas é melhor que <code>FIELDS(ALL)</code>: pesa uma fração
+            e não tem o teto de 200.{' '}
+            <code>
+              SELECT Id, CaseId, MilestoneType.Name, StartDate, TargetDate, CompletionDate,
+              IsCompleted, IsViolated, TargetResponseInMins, TimeRemainingInMins FROM CaseMilestone
+              WHERE …
+            </code>
+          </li>
+          <li>
+            <strong>Zero registros logo depois do submit não é erro.</strong> O Caso nasce por
+            automação, e só ganha milestone se entrar num processo de direito. Quem consulta no
+            mesmo segundo do envio pode chegar antes — vale tentar de novo, e não tratar vazio como
+            falha.
+          </li>
+        </ul>
+      </div>
+
+      <h3>Na POC</h3>
+      <p>
+        <code>GET /api/sla?submissionId=…</code> ou <code>GET /api/sla?caseId=…</code> — exatamente
+        um dos dois. Roda a consulta A ou B, exatamente como acima, e devolve os registros
+        intactos. Na aba Demo, depois de <em>Criar registro no Salesforce</em>, o painel{' '}
+        <em>SLAs de atendimento do caso gerado</em> chama esta rota sozinho, e alterna entre as duas
+        variantes.
+      </p>
+      <pre className="json small">{SLA_RETORNO_BFF}</pre>
+      <p className="info-nota">
+        Conferido no FornoV1 em 02/10/2026: as duas variantes devolvem o mesmo milestone para o mesmo
+        envio, em ~130 ms; os 19 tipos da lista existem com o nome exato; e um milestone fora da
+        lista — “Primeiro contato de e-mail”, no mesmo caso — fica de fora, como deve. A sonda{' '}
+        <code>scripts/peek-sla-milestones.mjs</code> repete a conferência em outra org.
       </p>
     </Secao>
   );

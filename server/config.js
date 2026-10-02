@@ -2,6 +2,8 @@
  * Configuração lida do ambiente (.env carregado via `node --env-file=.env`).
  */
 
+import { TIPOS_SLA } from './sla.js';
+
 const required = (name, value) => {
   if (!value) throw new Error(`Variável de ambiente obrigatória não definida: ${name}`);
   return value;
@@ -15,6 +17,24 @@ export const config = {
   documentsObject: process.env.SF_DOCS_OBJECT || 'FormRequiredDocument__c',
   docsField: process.env.SF_DOCS_FIELD || 'FormRequiredDocuments__c',
   port: Number(process.env.PORT || 3000),
+
+  /**
+   * SLA do caso gerado pelo envio.
+   *
+   * O envio cria o registro do formulário; uma automação cria o Case e grava o
+   * Id do envio neste lookup; o processo de direito do Case cria os
+   * CaseMilestone. `GET /api/sla` percorre esse caminho de volta.
+   */
+  slaSubmissionField: process.env.SF_SLA_SUBMISSION_FIELD || 'RelatedCaseFormSubmission__c',
+
+  /**
+   * Os tipos de milestone que contam como SLA. A lista vive em `sla.js`, que o
+   * front também lê; `SF_SLA_MILESTONE_TYPES` substitui a lista inteira,
+   * separada por `|` — vírgula não serve, um dos nomes tem vírgula.
+   */
+  slaMilestoneTypes: process.env.SF_SLA_MILESTONE_TYPES
+    ? process.env.SF_SLA_MILESTONE_TYPES.split('|').map((s) => s.trim()).filter(Boolean)
+    : TIPOS_SLA,
 
   /**
    * Campos que o Salesforce obriga a manter no Page Layout de Case mas que não

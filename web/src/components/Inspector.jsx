@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import * as api from '../api.js';
+import SlaPanel from './SlaPanel.jsx';
 
 const formatBytes = (n) =>
   n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(2)} MB` : `${Math.round(n / 1024).toLocaleString('pt-BR')} KB`;
@@ -354,12 +355,12 @@ function Payload({ contract, result, createResult, creating, onCreate }) {
         </span>
       </div>
 
-      {createResult && <CreateResult result={createResult} />}
+      {createResult && <CreateResult result={createResult} objeto={contract?.object} />}
     </>
   );
 }
 
-function CreateResult({ result }) {
+function CreateResult({ result, objeto }) {
   if (!result.ok) {
     return (
       <div className="note err create-result">
@@ -379,36 +380,41 @@ function CreateResult({ result }) {
   const rec = result.record || {};
 
   return (
-    <div className="note ok create-result">
-      <strong>Registro criado no Salesforce.</strong>
-      <dl className="created">
-        {rec.CaseNumber ? (
-          <>
-            <dt>Número</dt>
-            <dd>{rec.CaseNumber}</dd>
-          </>
-        ) : rec.Name ? (
-          <>
-            <dt>Nome</dt>
-            <dd>{rec.Name}</dd>
-          </>
-        ) : null}
-        <dt>Id</dt>
-        <dd className="mono">{result.id}</dd>
-        {rec.Status && (
-          <>
-            <dt>Status</dt>
-            <dd>{rec.Status}</dd>
-          </>
-        )}
-        {rec.CreatedDate && (
-          <>
-            <dt>Criado em</dt>
-            <dd>{new Date(rec.CreatedDate).toLocaleString('pt-BR')}</dd>
-          </>
-        )}
-      </dl>
-      {result.attachmentsNote && <div className="help">{result.attachmentsNote}</div>}
-    </div>
+    <>
+      <div className="note ok create-result">
+        <strong>Registro criado no Salesforce.</strong>
+        <dl className="created">
+          {rec.CaseNumber ? (
+            <>
+              <dt>Número</dt>
+              <dd>{rec.CaseNumber}</dd>
+            </>
+          ) : rec.Name ? (
+            <>
+              <dt>Nome</dt>
+              <dd>{rec.Name}</dd>
+            </>
+          ) : null}
+          <dt>Id</dt>
+          <dd className="mono">{result.id}</dd>
+          {rec.Status && (
+            <>
+              <dt>Status</dt>
+              <dd>{rec.Status}</dd>
+            </>
+          )}
+          {rec.CreatedDate && (
+            <>
+              <dt>Criado em</dt>
+              <dd>{new Date(rec.CreatedDate).toLocaleString('pt-BR')}</dd>
+            </>
+          )}
+        </dl>
+        {result.attachmentsNote && <div className="help">{result.attachmentsNote}</div>}
+      </div>
+
+      {/* key: um registro novo é outro teste — o painel recomeça e busca sozinho. */}
+      {result.id && <SlaPanel key={result.id} idCriado={result.id} objeto={objeto} />}
+    </>
   );
 }

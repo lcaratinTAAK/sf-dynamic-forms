@@ -462,13 +462,145 @@ POST /services/data/v66.0/composite
 }
 ```
 
-## 13. Casos de borda
+## 13. Depois do submit: o SLA do caso gerado
+
+O submit não cria o Caso, cria o **registro do formulário**. O Caso nasce depois, por automação, com o Id desse registro em `Case.RelatedCaseFormSubmission__c`. O processo de direito do Caso cria então os `CaseMilestone`, um por prazo correndo. O SLA é o milestone cujo tipo (`MilestoneType.Name`) está na lista abaixo.
+
+```
+registro do envio  ──automação──▶  Case  ──processo de direito──▶  CaseMilestone
+  (o Id do POST)              RelatedCaseFormSubmission__c        CaseId · MilestoneTypeId
+```
+
+Há dois caminhos até os milestones, e os dois chegam nos mesmos registros. Muda só qual Id o SI tem na mão.
+
+| | filtra por | quando usar |
+| :-- | :-- | :-- |
+| **A · pelo envio** | `Case.RelatedCaseFormSubmission__c = :submissionId` | logo depois do submit, com o Id que o POST devolveu. Não precisa conhecer o Caso, e cada milestone volta com `CaseId`. |
+| **B · pelo Caso** | `CaseId = :caseId` | quando o Caso já é conhecido. Logo depois do submit o SI não tem esse Id: precisaria de `SELECT Id FROM Case WHERE RelatedCaseFormSubmission__c = :submissionId` antes. |
+
+**A · pelo envio**
+
+```sql
+SELECT FIELDS(ALL), MilestoneType.Name
+FROM CaseMilestone
+WHERE Case.RelatedCaseFormSubmission__c = :submissionId
+  AND MilestoneType.Name IN (
+    'Agents',
+    'SLA de atendimento',
+    'SLA de atendimento - Closing - Anexos, Aditivos, Docs e Preferências',
+    'SLA de atendimento - FR',
+    'Reparos - Incêndio - 5 dias',
+    'GeneralPreContractRequirements',
+    'GeneralPreContractRequirements - 25 dias',
+    'ListingQuality 2 Dias SLA',
+    'Photos - SLA - 1 day',
+    'Photos - SLA - 2 days',
+    'Photography - SLA - 1 day',
+    'Placas - Agendamento - SLA - 2 dias',
+    'Lockbox - Logistica - SLA - 1 dia',
+    'Reembolso de Reparos - SLA - 2 Dias',
+    'Reparos - Contestação de responsibillidade ou criticidade - SLA - 3 Dias',
+    'Reparos – Vistoriador Danificou o Imóvel',
+    'SLA Total do Atendimento - Comum',
+    'SLA Total do Atendimento - Emergencial',
+    'SLA Total do Atendimento - Urgente'
+  )
+LIMIT 200
+```
+
+**B · pelo Caso**: a mesma consulta, trocando a linha do `WHERE` por `WHERE CaseId = :caseId`.
+
+Na rede: `GET /services/data/v66.0/query?q=<SOQL percent-encoded>`.
+
+Os nomes são comparados **como estão na org**, letra por letra. "Reparos – Vistoriador Danificou o Imóvel" usa travessão (–), não hífen, e "responsibillidade" é a grafia que existe lá. Corrigir um deles faz o tipo sumir do resultado sem erro nenhum.
+
+O retorno é o padrão do `/query`, um registro por milestone. Este é real, capturado no FornoV1 em 02/10/2026: o SLA de atendimento do caso 00086283, que nasceu de um envio de formulário.
+
+```json
+{
+  "totalSize": 1,
+  "done": true,
+  "records": [
+    {
+      "attributes": { "type": "CaseMilestone", "url": "/services/data/v66.0/sobjects/CaseMilestone/555be00000uWhhhAAC" },
+      "MilestoneType": {
+        "attributes": { "type": "MilestoneType", "url": "/services/data/v66.0/sobjects/MilestoneType/557bL0000000NuMQAU" },
+        "Name": "SLA de atendimento"
+      },
+      "Id": "555be00000uWhhhAAC",
+      "CaseId": "500be00000K8ULaAAN",
+      "StartDate": "2026-10-01T13:59:15.000+0000",
+      "TargetDate": "2026-10-08T13:59:00.000+0000",
+      "CompletionDate": null,
+      "MilestoneTypeId": "557bL0000000NuMQAU",
+      "IsCompleted": false,
+      "IsViolated": false,
+      "SystemModstamp": "2026-10-01T13:59:15.000+0000",
+      "CreatedDate": "2026-10-01T13:59:15.000+0000",
+      "CreatedById": "005be00000GNTUuAAP",
+      "LastModifiedDate": "2026-10-01T13:59:15.000+0000",
+      "LastModifiedById": "005be00000GNTUuAAP",
+      "IsDeleted": false,
+      "TargetResponseInMins": 7200,
+      "TargetResponseInHrs": 120,
+      "TargetResponseInDays": 5,
+      "TimeRemainingInMins": "5541:47",
+      "TimeRemainingInHrs": "92:21",
+      "TimeRemainingInDays": 3.8484675462962965,
+      "ElapsedTimeInMins": null,
+      "ElapsedTimeInHrs": null,
+      "ElapsedTimeInDays": null,
+      "TimeSinceTargetInMins": "00:00",
+      "TimeSinceTargetInHrs": "00:00",
+      "TimeSinceTargetInDays": 0,
+      "BusinessHoursId": "01mbL000000AB2DQAW"
+    }
+  ]
+}
+```
+
+| Coluna | Tipo | O que é |
+| :-- | :-- | :-- |
+| `MilestoneType.Name` | string | O nome do tipo, que diz **qual** prazo é. Não vem no `FIELDS(ALL)`: precisa ser pedido ao lado. |
+| `CaseId` | Id | O Caso. Na variante A, é como o SI descobre qual Caso nasceu do envio. |
+| `MilestoneTypeId` | Id | O Id do tipo. O nome está em `MilestoneType.Name`. |
+| `StartDate` | datetime | Quando o relógio começou. |
+| `TargetDate` | datetime | O prazo. Já respeita o horário comercial de `BusinessHoursId`. |
+| `CompletionDate` | datetime \| null | Quando foi concluído. `null` enquanto aberto. |
+| `IsCompleted` | boolean | Concluído. |
+| `IsViolated` | boolean | Passou do prazo. Pode vir `true` junto com `IsCompleted`: concluído fora do prazo. |
+| `TargetResponseInMins` | number | A meta, em tempo de horário comercial; `…InHrs` e `…InDays` são a mesma meta em outra unidade. Por isso o prazo não é `StartDate` + meta: no exemplo, 7.200 min são 5 dias úteis, e `TargetDate` caiu 7 dias corridos depois. O prazo é sempre `TargetDate`. |
+| `TimeRemainingInMins` | string | O que falta, como **texto** `"mm:ss"`, não número. `…InHrs` é `"hh:mm"`; `…InDays` é número. |
+| `TimeSinceTargetInMins` | string | Há quanto tempo venceu, `"mm:ss"`. Vem `"00:00"`, não `null`, enquanto está dentro do prazo. |
+| `ElapsedTimeInMins` | number \| null | Tempo até a conclusão. `null` enquanto aberto. |
+
+Cuidados (todos conferidos no FornoV1):
+
+- **`FIELDS(ALL)` exige `LIMIT` de no máximo 200** na API. Sem ele a consulta é recusada inteira, com `MALFORMED_QUERY`.
+- **O campo é `CaseId`**, não `Case`. `WHERE Case = '500…'` não compila; `Case.` só serve para atravessar o relacionamento, como na A.
+- **O nome do tipo não vem no `FIELDS(ALL)`**, que não traz relacionamento. Com vários tipos na lista, é o nome que diz qual prazo é qual, por isso a consulta pede `MilestoneType.Name` ao lado. A API aceita a mistura.
+- **Para produção, prefira listar as colunas.** Pesa uma fração e não tem o teto de 200:
+
+  ```sql
+  SELECT Id, CaseId, MilestoneType.Name, StartDate, TargetDate, CompletionDate,
+         IsCompleted, IsViolated, TargetResponseInMins, TimeRemainingInMins, TimeSinceTargetInMins
+  FROM CaseMilestone
+  WHERE Case.RelatedCaseFormSubmission__c = :submissionId
+    AND MilestoneType.Name IN (...)
+  ```
+
+- **Zero registros logo depois do submit não é erro.** Ver casos de borda.
+
+A POC expõe as duas variantes em `GET /api/sla?submissionId=…` e `GET /api/sla?caseId=…`, e mostra o resultado na aba Demo depois de criar o registro. A lista de tipos que ela usa está em `server/sla.js`. No FornoV1, as duas variantes devolvem o mesmo milestone para o mesmo envio, os 19 tipos da lista existem com o nome exato, e um milestone fora da lista ("Primeiro contato de e-mail", no mesmo caso) fica de fora.
+
+## 14. Casos de borda
 
 - **Objeto sem Record Types customizados** (`CaseSI__c`): `TargetRecordTypeDevName__c` não resolve para nenhum Record Type. Para os valores de picklist, usar o Record Type padrão do objeto (`defaultRecordTypeId` do object-info). Em objeto que **tem** Record Types (`Case`), um nome que não resolve é erro de configuração; não cair no padrão.
 - **`CUSTOM` sem `FilterLogic__c`**: tratar como `ALL` e avisar.
 - **`BLOCK` em alvo sem `Message__c`**: descartar a regra e avisar.
 - **`MinFiles__c` vazio com `IsRequired__c`**: assumir 1.
 - **Regra apontando para campo fora do escopo** (campo da lista observado por regra de fora dela, ou vice-versa): não avaliar; tratar como não batida.
+- **SLA vazio logo depois do submit**: o Caso nasce por automação e só ganha milestone se entrar num processo de direito. Uma consulta da seção 13 no mesmo segundo do envio pode chegar antes. Tentar de novo depois de alguns segundos; vazio não é falha do submit.
 - **Referência sem correspondência**: o texto enviado em um `Reference` não bate com nenhum registro. O registro do formulário é criado mesmo assim; o lookup fica vazio e a operação resolve depois. Não é erro do SI.
 - **Linha com `IsActive__c = false`** fora da raiz: ignorar, com seus filhos.
 - **Versão**: se o cliente guardou o Id da raiz, ele para de valer na próxima ativação. Guardar `FormKey__c` e resolver a raiz ativa a cada abertura.

@@ -20,6 +20,7 @@ import {
   sfGet,
   SalesforceError,
   schemaEFormulario,
+  buscarSla,
 } from './salesforce.js';
 import { buildSubmitPayload, indexarCampos } from './contract.js';
 import * as uiapi from './adapters/uiapi.js';
@@ -462,6 +463,41 @@ app.post('/api/create-record', async (req, res) => {
   }
 });
 
+// --- depois do envio: o SLA do caso gerado ----------------------------------
+
+/**
+ * Os milestones de SLA do caso que o envio gerou.
+ *
+ *   GET /api/sla?submissionId=a1B...   pelo registro do formulário (o Id que o envio devolveu)
+ *   GET /api/sla?caseId=500...         pelo Caso
+ *
+ * Exatamente um dos dois. Os tipos que contam como SLA estão em
+ * `config.slaMilestoneTypes`.
+ */
+app.get('/api/sla', async (req, res) => {
+  const submissionId = req.query.submissionId ? String(req.query.submissionId).trim() : null;
+  const caseId = req.query.caseId ? String(req.query.caseId).trim() : null;
+
+  if (Boolean(submissionId) === Boolean(caseId)) {
+    return res.status(400).json({ error: 'Informe submissionId ou caseId — exatamente um dos dois.' });
+  }
+  const id = submissionId ?? caseId;
+  if (!/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/.test(id)) {
+    return res.status(400).json({ error: `Id inválido: ${id}` });
+  }
+
+  try {
+    const r = await buscarSla({ submissionId, caseId });
+    ok(res, {
+      via: submissionId ? 'submission' : 'case',
+      id,
+      ...r,
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 app.listen(config.port, () => {
   console.log(`\n  BFF da POC de formulários`);
   console.log(`  http://localhost:${config.port}`);
@@ -472,5 +508,6 @@ app.listen(config.port, () => {
   console.log(`  GET  /api/screen-flows`);
   console.log(`  GET  /api/form?source=uiapi&recordTypeId=...`);
   console.log(`  GET  /api/form?source=screenflow&formId=...`);
-  console.log(`  POST /api/submit\n`);
+  console.log(`  POST /api/submit`);
+  console.log(`  GET  /api/sla?submissionId=...  |  /api/sla?caseId=...\n`);
 });
