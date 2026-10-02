@@ -705,10 +705,15 @@ export function querySla({ submissionId = null, caseId = null }) {
  */
 export async function buscarSla({ submissionId = null, caseId = null }) {
   const q = querySla({ submissionId, caseId });
+  // O path montado aqui, e não dentro de `soql()`, para a URL devolvida ser
+  // exatamente a que foi chamada — a SOQL percent-encoded na query string.
+  const path = `${v()}/query?q=${encodeURIComponent(q)}`;
+  const { instanceUrl } = await session();
   const inicio = Date.now();
-  const r = await soql(q);
+  const r = await sfGet(path);
   return {
     soql: q,
+    request: { method: 'GET', url: `${instanceUrl}${path}` },
     elapsedMs: Date.now() - inicio,
     totalSize: r.totalSize,
     records: r.records ?? [],

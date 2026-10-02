@@ -464,6 +464,8 @@ POST /services/data/v66.0/composite
 
 ## 13. Depois do submit: o SLA do caso gerado
 
+> Guia dedicado, com a requisição HTTP, os erros e como derivar o status: [`SLA-Caso-Gerado.md`](SLA-Caso-Gerado.md).
+
 O submit não cria o Caso, cria o **registro do formulário**. O Caso nasce depois, por automação, com o Id desse registro em `Case.RelatedCaseFormSubmission__c`. O processo de direito do Caso cria então os `CaseMilestone`, um por prazo correndo. O SLA é o milestone cujo tipo (`MilestoneType.Name`) está na lista abaixo.
 
 ```
@@ -579,6 +581,7 @@ Cuidados (todos conferidos no FornoV1):
 - **`FIELDS(ALL)` exige `LIMIT` de no máximo 200** na API. Sem ele a consulta é recusada inteira, com `MALFORMED_QUERY`.
 - **O campo é `CaseId`**, não `Case`. `WHERE Case = '500…'` não compila; `Case.` só serve para atravessar o relacionamento, como na A.
 - **O nome do tipo não vem no `FIELDS(ALL)`**, que não traz relacionamento. Com vários tipos na lista, é o nome que diz qual prazo é qual, por isso a consulta pede `MilestoneType.Name` ao lado. A API aceita a mistura.
+- **O mesmo tipo pode vir repetido.** Quando o prazo recomeça, o milestone anterior é concluído e um novo começa (no FornoV1, o caso `500be00000Du7NEAAZ` tem três "SLA de atendimento"). O vigente é o de `IsCompleted = false`; para histórico, ordene por `StartDate`.
 - **Para produção, prefira listar as colunas.** Pesa uma fração e não tem o teto de 200:
 
   ```sql

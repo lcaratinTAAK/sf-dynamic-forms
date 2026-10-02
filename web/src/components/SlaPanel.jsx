@@ -49,6 +49,25 @@ function situacao(m) {
   return { rotulo: 'Em andamento', cls: 'aberto' };
 }
 
+const mmss = (v) => (v ? `${v} (min:s)` : '—');
+
+/**
+ * O resumo de um milestone: [rótulo, valor, de onde vem]. A terceira coluna é
+ * o ponto — quem for consumir a API lê aqui qual campo do CaseMilestone
+ * alimenta cada informação, sem precisar abrir o retorno cru.
+ */
+const resumo = (m, s) => [
+  ['Status', s.rotulo, 'IsCompleted + IsViolated'],
+  ['Caso', <span className="mono">{m.CaseId}</span>, 'CaseId'],
+  ['Início', data(m.StartDate), 'StartDate'],
+  ['Prazo', data(m.TargetDate), 'TargetDate'],
+  ['Meta', meta(m), 'TargetResponseInDays · InHrs · InMins'],
+  // Os três são texto "mm:ss", não número — conferido no FornoV1.
+  ['Restante', mmss(m.TimeRemainingInMins), 'TimeRemainingInMins'],
+  ['Atrasado há', mmss(m.TimeSinceTargetInMins), 'TimeSinceTargetInMins'],
+  ['Concluído em', data(m.CompletionDate), 'CompletionDate'],
+];
+
 export default function SlaPanel({ idCriado, objeto }) {
   const criaCaso = objeto === 'Case';
   const [via, setVia] = useState(criaCaso ? 'case' : 'submission');
@@ -60,8 +79,9 @@ export default function SlaPanel({ idCriado, objeto }) {
   const [resultado, setResultado] = useState(null);
   const [erro, setErro] = useState(null);
   const [cru, setCru] = useState(false);
-  // A SOQL leva a lista inteira de tipos e ocupa meia tela: fica recolhida.
-  const [verSoql, setVerSoql] = useState(false);
+  // A requisição leva a lista inteira de tipos e ocupa meia tela: fica recolhida.
+  const [verReq, setVerReq] = useState(false);
+  const [abaReq, setAbaReq] = useState('rede'); // rede | soql
 
   const buscar = async (qual = via, id = ids[qual]) => {
     if (!id?.trim()) {
@@ -154,19 +174,50 @@ export default function SlaPanel({ idCriado, objeto }) {
             <span>
               <b>{resultado.elapsedMs} ms</b>
             </span>
-            <button className="link" onClick={() => setVerSoql((v) => !v)}>
-              {verSoql ? 'ocultar SOQL' : 'ver SOQL'}
+            <button className="link" onClick={() => setVerReq((v) => !v)}>
+              {verReq ? 'ocultar requisição' : 'ver requisição'}
             </button>
             <button className="link" onClick={() => setCru((v) => !v)}>
               {cru ? 'ver resumo' : 'ver retorno cru'}
             </button>
           </div>
 
-          {verSoql && (
-            <pre className="json small sla-soql">
-              <span className="verbo verbo-get">GET</span>
-              {resultado.soql}
-            </pre>
+          {/* "Na rede" é a URL que o BFF chamou, byte a byte: a SOQL vai
+              percent-encoded em `q`. A aba "SOQL" é a mesma consulta decodificada,
+              só para leitura — ela não é a rota. */}
+          {verReq && (
+            <div className="sla-req">
+              <span className="replay-tabs">
+                {[
+                  ['rede', 'Na rede'],
+                  ['soql', 'SOQL decodificada'],
+                ].map(([id, rotulo]) => (
+                  <button
+                    key={id}
+                    className={`chip${abaReq === id ? ' is-active' : ''}`}
+                    onClick={() => setAbaReq(id)}
+                  >
+                    {rotulo}
+                  </button>
+                ))}
+              </span>
+              <pre className="json small sla-soql">
+                {abaReq === 'rede' ? (
+                  <>
+                    <span className="verbo verbo-get">{resultado.request?.method ?? 'GET'}</span>
+                    {resultado.request?.url ?? '—'}
+                    {'\nAuthorization: Bearer <SF_ACCESS_TOKEN>\nAccept: application/json'}
+                  </>
+                ) : (
+                  resultado.soql
+                )}
+              </pre>
+              <div className="help">
+                {abaReq === 'rede'
+                  ? 'O que vai na rede: o endpoint /query e a SOQL percent-encoded no parâmetro q. Espaço como %20 ou +, os dois funcionam.'
+                  : 'A mesma consulta, decodificada para leitura. Não é a rota: na rede ela vai codificada em q.'}
+              </div>
+            </div>
           )}
 
           {cru ? (
@@ -182,30 +233,28 @@ export default function SlaPanel({ idCriado, objeto }) {
             </div>
           ) : (
             <div className="sla-lista">
+              <div className="help">
+                À direita, o campo do <code>CaseMilestone</code> de onde sai cada valor. O status
+                não é um campo: vem de <code>IsCompleted</code> e <code>IsViolated</code> — os dois{' '}
+                <code>true</code> é concluído fora do prazo.
+              </div>
               {registros.map((m) => {
                 const s = situacao(m);
                 return (
                   <div className={`sla-item is-${s.cls}`} key={m.Id}>
                     <div className="sla-item-topo">
-                      <span>{m.MilestoneType?.Name ?? m.MilestoneTypeId}</span>
+                      <span>
+                        {m.MilestoneType?.Name ?? m.MilestoneTypeId}
+                        <code className="sla-campo">MilestoneType.Name</code>
+                      </span>
                       <span className={`sla-status is-${s.cls}`}>{s.rotulo}</span>
                     </div>
-                    <dl className="created">
-                      {[
-                        ['Caso', <span className="mono">{m.CaseId}</span>],
-                        ['Início', data(m.StartDate)],
-                        ['Prazo', data(m.TargetDate)],
-                        ['Meta', meta(m)],
-                        m.IsCompleted
-                          ? ['Concluído em', data(m.CompletionDate)]
-                          : m.IsViolated
-                            ? ['Atrasado há', m.TimeSinceTargetInMins ? `${m.TimeSinceTargetInMins} (min:s)` : '—']
-                            // TimeRemainingInMins é texto "mm:ss", não número — conferido no FornoV1.
-                            : ['Restante', m.TimeRemainingInMins ? `${m.TimeRemainingInMins} (min:s)` : '—'],
-                      ].map(([rotulo, valor]) => (
+                    <dl className="created sla-campos">
+                      {resumo(m, s).map(([rotulo, valor, campo]) => (
                         <Fragment key={rotulo}>
                           <dt>{rotulo}</dt>
                           <dd>{valor}</dd>
+                          <dd className="sla-campo">{campo}</dd>
                         </Fragment>
                       ))}
                     </dl>

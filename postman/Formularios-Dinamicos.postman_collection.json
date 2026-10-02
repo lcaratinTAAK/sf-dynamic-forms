@@ -395,9 +395,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// Environment vence collection na resolução do Postman — escreve-se onde vai ser lido.",
+                  "// Environment vence collection na resolução: grava no environment se a chave existe lá.",
                   "const guardar = (chave, valor) =>",
-                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "  pm.environment.has(chave) ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
                   "",
                   "pm.test('201', () => pm.response.to.have.status(201));",
                   "const j = pm.response.json();",
@@ -444,9 +444,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// Environment vence collection na resolução do Postman — escreve-se onde vai ser lido.",
+                  "// Environment vence collection na resolução: grava no environment se a chave existe lá.",
                   "const guardar = (chave, valor) =>",
-                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "  pm.environment.has(chave) ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
                   "",
                   "pm.test('200', () => pm.response.to.have.status(200));",
                   "const partes = pm.response.json().compositeResponse || [];",
@@ -1625,9 +1625,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// Environment vence collection na resolução do Postman — escreve-se onde vai ser lido.",
+                  "// Environment vence collection na resolução: grava no environment se a chave existe lá.",
                   "const guardar = (chave, valor) =>",
-                  "  pm.environment.name ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "  pm.environment.has(chave) ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
                   "",
                   "pm.test('200', () => pm.response.to.have.status(200));",
                   "const r = pm.response.json();",
@@ -1770,6 +1770,176 @@
               }
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "08 · Fluxo do SI · envio → SLAs",
+      "description": "O fluxo inteiro do SI, de ponta a ponta: cria o envio do formulário e, logo em seguida, busca os SLAs do Caso que ele gerou.\n\n1. **Criar o envio**: `POST /sobjects/CaseFormSubmission__c`. Grava `submissionId`.\n2. **SLAs pelo envio**: a consulta que o SI usa (variante A). Grava `caseId` a partir do `CaseId` do retorno.\n3. **SLAs pelo Caso**: a variante B, com o `caseId` da anterior. Mesmo resultado.\n\nO Caso nasce por automação **depois** do envio, então logo após o POST a consulta pode vir vazia. A requisição 2 tenta de novo sozinha, até 5 vezes com 3 s de intervalo, mas **só no Collection Runner** (ou no `newman`): o \"Send\" avulso não repete.\n\n> **Cria registros de verdade**: o envio e o Caso que a automação gera. Use em sandbox.\n\nO corpo segue um envio real do formulário `owner_bank_data_change#10` no FornoV1, com dados de teste. Referência: `docs/SLA-Caso-Gerado.md`.",
+      "item": [
+        {
+          "name": "1 · Criar o envio · CaseFormSubmission__c",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Environment vence collection na resolução: grava no environment se a chave existe lá.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.has(chave) ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "if (j.id) { guardar('submissionId', j.id); guardar('caseId', ''); console.log('Envio criado: ' + j.id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"FormVersion__c\": \"owner_bank_data_change#10\",\n  \"Origin__c\": \"Web\",\n  \"RequesterType__c\": \"Proprietário\",\n  \"FullName__c\": \"Teste Postman SLA\",\n  \"RegisteredEmail__c\": \"teste.sla@exemplo.com.br\",\n  \"IsPPMulti__c\": \"Sim\",\n  \"SameAccountAllContracts__c\": \"Sim\",\n  \"BankName__c\": \"Nubank (260)\",\n  \"BankBranch__c\": \"0001\",\n  \"BankBranchDigit__c\": \"1\",\n  \"BankAccount__c\": \"1234567890\",\n  \"BankAccountDigit__c\": \"2\",\n  \"BankAccountType__c\": \"Conta Corrente Individual\",\n  \"DocumentType__c\": \"CNH\"\n}"
+            },
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/sobjects/CaseFormSubmission__c",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "sobjects",
+                "CaseFormSubmission__c"
+              ]
+            },
+            "description": "O submit do SI. `FormVersion__c` diz ao Salesforce qual versão do formulário criou o registro; com ela, a automação cria o Caso com o Id deste envio em `Case.RelatedCaseFormSubmission__c` (e grava o Caso de volta em `GeneratedCase__c`). Devolve `201` com o `id` do envio."
+          }
+        },
+        {
+          "name": "2 · SLAs pelo envio · RelatedCaseFormSubmission__c",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Environment vence collection na resolução: grava no environment se a chave existe lá.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.has(chave) ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "const tentativa = Number(pm.variables.get('slaTentativa') || 0);",
+                  "",
+                  "// Sem SLA ainda: o Caso pode não ter nascido. Repete a própria requisição",
+                  "// (só funciona no Collection Runner / newman; o \"Send\" avulso ignora).",
+                  "if (r.totalSize === 0 && tentativa < 5) {",
+                  "  pm.variables.set('slaTentativa', tentativa + 1);",
+                  "  console.log('Ainda sem SLA — tentativa ' + (tentativa + 1) + ' de 5, de novo em 3 s.');",
+                  "  setTimeout(() => {}, 3000);",
+                  "  pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.variables.unset('slaTentativa');",
+                  "  console.log(r.totalSize + ' SLA(s) do envio ' + pm.variables.get('submissionId'));",
+                  "  r.records.forEach((m) => {",
+                  "    const status = m.IsCompleted ? (m.IsViolated ? 'concluído fora do prazo' : 'concluído') : (m.IsViolated ? 'VIOLADO' : 'em andamento');",
+                  "    console.log(m.MilestoneType.Name + ' · prazo ' + m.TargetDate + ' · ' + status + ' · restante ' + m.TimeRemainingInMins);",
+                  "  });",
+                  "  if (r.records[0]) guardar('caseId', r.records[0].CaseId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT FIELDS(ALL), MilestoneType.Name FROM CaseMilestone WHERE Case.RelatedCaseFormSubmission__c = '{{submissionId}}' AND MilestoneType.Name IN ('Agents', 'SLA de atendimento', 'SLA de atendimento - Closing - Anexos, Aditivos, Docs e Preferências', 'SLA de atendimento - FR', 'Reparos - Incêndio - 5 dias', 'GeneralPreContractRequirements', 'GeneralPreContractRequirements - 25 dias', 'ListingQuality 2 Dias SLA', 'Photos - SLA - 1 day', 'Photos - SLA - 2 days', 'Photography - SLA - 1 day', 'Placas - Agendamento - SLA - 2 dias', 'Lockbox - Logistica - SLA - 1 dia', 'Reembolso de Reparos - SLA - 2 Dias', 'Reparos - Contestação de responsibillidade ou criticidade - SLA - 3 Dias', 'Reparos – Vistoriador Danificou o Imóvel', 'SLA Total do Atendimento - Comum', 'SLA Total do Atendimento - Emergencial', 'SLA Total do Atendimento - Urgente') LIMIT 200",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT FIELDS(ALL), MilestoneType.Name FROM CaseMilestone WHERE Case.RelatedCaseFormSubmission__c = '{{submissionId}}' AND MilestoneType.Name IN ('Agents', 'SLA de atendimento', 'SLA de atendimento - Closing - Anexos, Aditivos, Docs e Preferências', 'SLA de atendimento - FR', 'Reparos - Incêndio - 5 dias', 'GeneralPreContractRequirements', 'GeneralPreContractRequirements - 25 dias', 'ListingQuality 2 Dias SLA', 'Photos - SLA - 1 day', 'Photos - SLA - 2 days', 'Photography - SLA - 1 day', 'Placas - Agendamento - SLA - 2 dias', 'Lockbox - Logistica - SLA - 1 dia', 'Reembolso de Reparos - SLA - 2 Dias', 'Reparos - Contestação de responsibillidade ou criticidade - SLA - 3 Dias', 'Reparos – Vistoriador Danificou o Imóvel', 'SLA Total do Atendimento - Comum', 'SLA Total do Atendimento - Emergencial', 'SLA Total do Atendimento - Urgente') LIMIT 200"
+                }
+              ]
+            },
+            "description": "A consulta que o SI usa logo depois do submit, com o `submissionId` gravado pela 1. Vazio logo depois do envio é esperado: o Caso nasce por automação. No Runner, repete até 5 vezes com 3 s de intervalo."
+          }
+        },
+        {
+          "name": "3 · SLAs pelo Caso · CaseId",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' SLA(s) do Caso ' + pm.variables.get('caseId'));",
+                  "r.records.forEach((m) => {",
+                  "  const status = m.IsCompleted ? (m.IsViolated ? 'concluído fora do prazo' : 'concluído') : (m.IsViolated ? 'VIOLADO' : 'em andamento');",
+                  "  console.log(m.MilestoneType.Name + ' · prazo ' + m.TargetDate + ' · ' + status + ' · restante ' + m.TimeRemainingInMins);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT FIELDS(ALL), MilestoneType.Name FROM CaseMilestone WHERE CaseId = '{{caseId}}' AND MilestoneType.Name IN ('Agents', 'SLA de atendimento', 'SLA de atendimento - Closing - Anexos, Aditivos, Docs e Preferências', 'SLA de atendimento - FR', 'Reparos - Incêndio - 5 dias', 'GeneralPreContractRequirements', 'GeneralPreContractRequirements - 25 dias', 'ListingQuality 2 Dias SLA', 'Photos - SLA - 1 day', 'Photos - SLA - 2 days', 'Photography - SLA - 1 day', 'Placas - Agendamento - SLA - 2 dias', 'Lockbox - Logistica - SLA - 1 dia', 'Reembolso de Reparos - SLA - 2 Dias', 'Reparos - Contestação de responsibillidade ou criticidade - SLA - 3 Dias', 'Reparos – Vistoriador Danificou o Imóvel', 'SLA Total do Atendimento - Comum', 'SLA Total do Atendimento - Emergencial', 'SLA Total do Atendimento - Urgente') LIMIT 200",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT FIELDS(ALL), MilestoneType.Name FROM CaseMilestone WHERE CaseId = '{{caseId}}' AND MilestoneType.Name IN ('Agents', 'SLA de atendimento', 'SLA de atendimento - Closing - Anexos, Aditivos, Docs e Preferências', 'SLA de atendimento - FR', 'Reparos - Incêndio - 5 dias', 'GeneralPreContractRequirements', 'GeneralPreContractRequirements - 25 dias', 'ListingQuality 2 Dias SLA', 'Photos - SLA - 1 day', 'Photos - SLA - 2 days', 'Photography - SLA - 1 day', 'Placas - Agendamento - SLA - 2 dias', 'Lockbox - Logistica - SLA - 1 dia', 'Reembolso de Reparos - SLA - 2 Dias', 'Reparos - Contestação de responsibillidade ou criticidade - SLA - 3 Dias', 'Reparos – Vistoriador Danificou o Imóvel', 'SLA Total do Atendimento - Comum', 'SLA Total do Atendimento - Emergencial', 'SLA Total do Atendimento - Urgente') LIMIT 200"
+                }
+              ]
+            },
+            "description": "A variante B, com o `caseId` que a 2 tirou do retorno. Tem que devolver os mesmos registros."
+          }
         }
       ]
     }

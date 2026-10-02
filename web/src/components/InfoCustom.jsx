@@ -1374,16 +1374,138 @@ const SLA_CHAMADAS = [
   },
 ];
 
-/** A consulta A por inteiro, para copiar. A B muda só a linha do WHERE. */
+/**
+ * A consulta A por inteiro, com um envio real do FornoV1 no lugar do parâmetro.
+ * A B muda só a linha do WHERE.
+ */
+const SLA_ENVIO_EXEMPLO = 'a1Ube000001bH4XEAU';
+const SLA_INSTANCIA_EXEMPLO = 'https://quintoandar--fornov1.sandbox.my.salesforce.com';
+
 const SLA_SOQL_COMPLETA = [
   'SELECT FIELDS(ALL), MilestoneType.Name',
   'FROM CaseMilestone',
-  'WHERE Case.RelatedCaseFormSubmission__c = :submissionId',
+  `WHERE Case.RelatedCaseFormSubmission__c = '${SLA_ENVIO_EXEMPLO}'`,
   '  AND MilestoneType.Name IN (',
   TIPOS_SLA.map((t) => `    '${t}'`).join(',\n'),
   '  )',
   'LIMIT 200',
 ].join('\n');
+
+const SLA_RETORNO_BFF = `{
+  "via": "submission",              // ou "case"
+  "id": "a1Ube000001bH4XEAU",
+  "soql": "SELECT FIELDS(ALL), MilestoneType.Name FROM CaseMilestone WHERE …",
+  "request": {                      // a chamada exata que o BFF fez
+    "method": "GET",
+    "url": "https://quintoandar--fornov1.sandbox.my.salesforce.com/services/data/v66.0/query?q=SELECT%20FIELDS(ALL)%2C%20MilestoneType.Name%20FROM%20CaseMilestone%20WHERE%20…"
+  },
+  "elapsedMs": 136,
+  "totalSize": 1,
+  "records": [ … ]                  // idêntico ao que a consulta A ou B devolve
+}`;
+
+/**
+ * As duas requisições, no formato de referência de API: método e rota, o que
+ * vai no cabeçalho e na query string, o que pode voltar, e um exemplo pronto.
+ *
+ * Todo status listado foi provocado de propósito no FornoV1 — inclusive o 400
+ * em HTML, que é o que mais confunde: o Salesforce recusa a URL antes de
+ * chegar na API, então não vem errorCode nenhum.
+ */
+const SLA_ENDPOINTS = {
+  salesforce: {
+    quem: 'Salesforce REST · o que o SI chama',
+    metodo: 'GET',
+    rota: '{instanceUrl}/services/data/v66.0/query?q={soql}',
+    grupos: [
+      {
+        titulo: 'Cabeçalhos',
+        linhas: [
+          ['Authorization', 'Bearer {accessToken}', 'Token OAuth do usuário de integração. Expira — o 401 avisa.'],
+          ['Accept', 'application/json', 'Opcional: JSON já é o padrão.'],
+        ],
+      },
+      {
+        titulo: 'Query string',
+        linhas: [
+          [
+            'q',
+            'SOQL · obrigatório',
+            'A consulta da variante A ou B, percent-encoded — nada de espaço cru na URL. Espaço vira %20 (ou +, os dois funcionam), vírgula %2C, = %3D, acento %C3%A9, travessão %E2%80%93.',
+          ],
+        ],
+      },
+      {
+        titulo: 'Respostas',
+        status: true,
+        linhas: [
+          ['200', 'OK', '{ totalSize, done, records[] }. Nenhum milestone também é 200, com records vazio.'],
+          ['400', 'MALFORMED_QUERY', 'SOQL inválida — por exemplo, FIELDS(ALL) sem LIMIT.'],
+          ['400', 'INVALID_FIELD', 'Campo que não existe na org: RelatedCaseFormSubmission__c numa org sem o objeto.'],
+          ['400', 'HTML, sem JSON', 'Acento na URL sem codificar. O Salesforce recusa antes da API: "Illegal Request".'],
+          ['401', 'INVALID_SESSION_ID', 'Token expirado ou inválido. Autentique de novo e repita.'],
+        ],
+      },
+    ],
+    exemplos: [
+      {
+        rotulo: 'curl',
+        codigo: [
+          '# A SOQL vai num arquivo e o curl codifica. Acento escrito direto na linha de',
+          '# comando chega corrompido no Windows e volta o 400 em HTML.',
+          `curl -G "${SLA_INSTANCIA_EXEMPLO}/services/data/v66.0/query" \\`,
+          '  -H "Authorization: Bearer $SF_TOKEN" \\',
+          '  -H "Accept: application/json" \\',
+          '  --data-urlencode "q@sla.soql"',
+        ].join('\n'),
+      },
+      { rotulo: 'sla.soql', codigo: SLA_SOQL_COMPLETA },
+      {
+        rotulo: 'URL na rede',
+        quebra: true,
+        codigo: `GET ${SLA_INSTANCIA_EXEMPLO}/services/data/v66.0/query?q=${encodeURIComponent(
+          SLA_SOQL_COMPLETA.replace(/\s+/g, ' ').trim()
+        )}`,
+      },
+    ],
+  },
+  bff: {
+    quem: 'BFF da POC · o que a tela chama',
+    metodo: 'GET',
+    rota: '{bffUrl}/api/sla?submissionId={id}',
+    grupos: [
+      {
+        titulo: 'Cabeçalhos',
+        linhas: [['—', '', 'Nenhum. O BFF fala com a org pela própria credencial, a do .env.']],
+      },
+      {
+        titulo: 'Query string · exatamente um dos dois',
+        linhas: [
+          ['submissionId', 'Id', 'O registro do envio (CaseFormSubmission__c). Roda a variante A.'],
+          ['caseId', 'Id', 'O Caso. Roda a variante B.'],
+        ],
+      },
+      {
+        titulo: 'Respostas',
+        status: true,
+        linhas: [
+          [
+            '200',
+            'OK',
+            '{ via, id, soql, request, elapsedMs, totalSize, records[] }. request.url é a rota exata chamada; records, o retorno do Salesforce intacto.',
+          ],
+          ['400', 'Id inválido', 'Não tem 15 nem 18 caracteres alfanuméricos — recusado antes de virar SOQL.'],
+          ['400', 'parâmetro', 'Nenhum dos dois, ou os dois juntos.'],
+          ['4xx', 'do Salesforce', 'O erro da org, repassado com o mesmo status e o corpo em details.'],
+        ],
+      },
+    ],
+    exemplos: [
+      { rotulo: 'curl', codigo: `curl "http://localhost:3000/api/sla?submissionId=${SLA_ENVIO_EXEMPLO}"` },
+      { rotulo: 'retorno', codigo: SLA_RETORNO_BFF },
+    ],
+  },
+};
 
 /**
  * Retorno real, capturado no FornoV1 em 02/10/2026 — o caso 00086283, nascido
@@ -1472,14 +1594,70 @@ const TIPO_MILESTONE = [
   ['ElapsedTimeInMins', 'number | null', 'Tempo até a conclusão. null enquanto estiver aberto.'],
 ];
 
-const SLA_RETORNO_BFF = `{
-  "via": "submission",              // ou "case"
-  "id": "a1Ube000001bH4XEAU",
-  "soql": "SELECT FIELDS(ALL), MilestoneType.Name FROM CaseMilestone WHERE …",
-  "elapsedMs": 136,
-  "totalSize": 1,
-  "records": [ … ]                  // idêntico ao que a consulta A ou B devolve
-}`;
+/** A rota com os parâmetros destacados: `{instanceUrl}` é o que muda por org. */
+function Rota({ texto }) {
+  return texto.split(/(\{\w+\})/).map((parte, i) =>
+    /^\{\w+\}$/.test(parte) ? (
+      <span className="ep-ph" key={i}>
+        {parte}
+      </span>
+    ) : (
+      parte
+    )
+  );
+}
+
+/** Um endpoint, no formato de referência de API. */
+function Endpoint({ ep }) {
+  const [aba, setAba] = useState(0);
+  const exemplo = ep.exemplos[aba];
+
+  return (
+    <div className="endpoint">
+      <div className="ep-topo">
+        <span className="ep-metodo">{ep.metodo}</span>
+        <code className="ep-rota">
+          <Rota texto={ep.rota} />
+        </code>
+        <span className="ep-quem">{ep.quem}</span>
+      </div>
+
+      <div className="ep-corpo">
+        {ep.grupos.map((g) => (
+          <div key={g.titulo}>
+            <span className="bloco-rot">{g.titulo}</span>
+            <table className="ep-tab">
+              <tbody>
+                {g.linhas.map(([a, b, c]) => (
+                  <tr key={a + b}>
+                    <td className={g.status ? `ep-status s${a[0]}` : 'ep-chave'}>{a}</td>
+                    <td className="ep-valor">{b && <code>{b}</code>}</td>
+                    <td className="celula-texto">{c}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+
+        <div>
+          <span className="replay-tabs">
+            {ep.exemplos.map((x, i) => (
+              <button
+                key={x.rotulo}
+                className={`chip${aba === i ? ' is-active' : ''}`}
+                onClick={() => setAba(i)}
+              >
+                {x.rotulo}
+              </button>
+            ))}
+          </span>
+          <pre className={`json small ep-cod${exemplo.quebra ? ' quebra' : ''}`}>{exemplo.codigo}</pre>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function Sla() {
   return (
@@ -1562,13 +1740,36 @@ function Sla() {
         ))}
       </div>
 
-      <h3>A consulta inteira, para copiar</h3>
+      <h3>A requisição</h3>
       <p>
-        É a A. Para a B, troque a linha do <code>WHERE</code> por <code>WHERE CaseId = :caseId</code>
-        . Na rede vai como <code>GET /services/data/v66.0/query?q=</code> com a SOQL
-        percent-encoded.
+        As duas variantes são <strong>o mesmo GET</strong> no endpoint de consulta da REST API; muda
+        só a SOQL que vai em <code>q</code>. O exemplo é a A, com um envio real do FornoV1 — para a
+        B, troque a linha do <code>WHERE</code> por{' '}
+        <code>WHERE CaseId = '500…'</code>.
       </p>
-      <pre className="json small">{SLA_SOQL_COMPLETA}</pre>
+      <Endpoint ep={SLA_ENDPOINTS.salesforce} />
+
+      <div className="aprofunda">
+        <div className="aprofunda-head">Dá para mandar a SOQL crua, direto na URL?</div>
+        <p>
+          Depende de quem envia. A URL não carrega espaço nem acento — alguém codifica. Testado no
+          FornoV1 com a consulta B escrita crua depois de <code>?q=</code>: o Postman e o{' '}
+          <code>fetch</code> do JS codificam sozinhos e passam; o curl recusa (exit 3), o{' '}
+          <code>HttpClient</code> do Java lança <code>IllegalArgumentException</code> e o{' '}
+          <code>urllib</code> do Python lança <code>InvalidURL</code> — os três antes de enviar.
+        </p>
+        <p>
+          O “direto” sem armadilha é passar <code>q</code> como parâmetro da biblioteca:{' '}
+          <code>params=&#123;'q': soql&#125;</code> no <code>requests</code>,{' '}
+          <code>params: &#123; q: soql &#125;</code> no axios,{' '}
+          <code>new URLSearchParams(&#123; q: soql &#125;)</code> no JS. E, mesmo com codificação
+          automática, quatro caracteres não sobrevivem crus: <code>+</code> vira espaço,{' '}
+          <code>&amp;</code> e <code>#</code> cortam o parâmetro (<code>MALFORMED_QUERY</code>), e{' '}
+          <code>%</code> é lido como código — <code>'100%Bom'</code> dá 400 em HTML. Nenhum aparece
+          na lista de tipos de hoje.
+        </p>
+      </div>
+
       <p className="info-nota aviso">
         Os nomes são comparados <strong>como estão na org</strong>, letra por letra. “Reparos –
         Vistoriador Danificou o Imóvel” usa travessão (–), não hífen, e “responsibillidade” é a
@@ -1591,7 +1792,7 @@ function Sla() {
       />
 
       <div className="aprofunda">
-        <div className="aprofunda-head">Cinco coisas que mordem</div>
+        <div className="aprofunda-head">Seis coisas que mordem</div>
         <ul className="lista">
           <li>
             <code>FIELDS(ALL)</code> exige <code>LIMIT</code> de no máximo 200 na API. Sem ele a
@@ -1607,6 +1808,13 @@ function Sla() {
             <code>MilestoneTypeId</code>. Com vários tipos na lista, é o nome que diz qual prazo é
             qual — por isso as consultas acima pedem <code>MilestoneType.Name</code> ao lado. A API
             aceita a mistura.
+          </li>
+          <li>
+            <strong>O mesmo tipo pode vir repetido.</strong> Quando o prazo recomeça, o milestone
+            anterior é concluído e um novo começa — no FornoV1, o caso{' '}
+            <code>500be00000Du7NEAAZ</code> tem três “SLA de atendimento”, dois concluídos e um
+            aberto. O vigente é o de <code>IsCompleted = false</code>; para histórico, ordene por{' '}
+            <code>StartDate</code>. Nunca confie na posição do registro.
           </li>
           <li>
             Para produção, listar as colunas é melhor que <code>FIELDS(ALL)</code>: pesa uma fração
@@ -1628,13 +1836,12 @@ function Sla() {
 
       <h3>Na POC</h3>
       <p>
-        <code>GET /api/sla?submissionId=…</code> ou <code>GET /api/sla?caseId=…</code> — exatamente
-        um dos dois. Roda a consulta A ou B, exatamente como acima, e devolve os registros
-        intactos. Na aba Demo, depois de <em>Criar registro no Salesforce</em>, o painel{' '}
-        <em>SLAs de atendimento do caso gerado</em> chama esta rota sozinho, e alterna entre as duas
-        variantes.
+        O BFF embrulha a mesma requisição numa rota própria: recebe o Id, monta a SOQL A ou B e
+        devolve os registros intactos. Na aba Demo, depois de <em>Criar registro no Salesforce</em>,
+        o painel <em>SLAs de atendimento do caso gerado</em> chama esta rota sozinho, e alterna
+        entre as duas variantes.
       </p>
-      <pre className="json small">{SLA_RETORNO_BFF}</pre>
+      <Endpoint ep={SLA_ENDPOINTS.bff} />
       <p className="info-nota">
         Conferido no FornoV1 em 02/10/2026: as duas variantes devolvem o mesmo milestone para o mesmo
         envio, em ~130 ms; os 19 tipos da lista existem com o nome exato; e um milestone fora da

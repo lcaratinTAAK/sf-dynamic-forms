@@ -297,6 +297,7 @@ Em `docs/`, o registro do que foi tentado e por quê:
 | `FormFieldRule.md` | o objeto de regras da fonte UI API |
 | `URLS.md` | as chamadas de cada fonte, uma a uma |
 | `RFC-Formularios-Dinamicos.md` | a proposta formal: modelo, contrato, chamadas, riscos |
+| `SLA-Caso-Gerado.md` | guia de integração do SLA do caso gerado: requisição, campos, erros |
 
 ---
 
