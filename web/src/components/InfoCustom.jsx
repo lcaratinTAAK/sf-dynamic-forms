@@ -132,6 +132,12 @@ const PAPEIS = [
     guarda: 'a entidade (ReferenceType__c) e o campo de texto que recebe o id externo; objeto e chave externa copiados do allowlist. Mesmas regras e largura de um Field',
     filhos: 'regras',
   },
+  {
+    rt: 'MultiReference',
+    o: 'vários contratos numa pergunta',
+    guarda: 'a entidade (sempre Contract) e a chave externa; sem campo no objeto — cada contrato escolhido vira um CaseContract__c ligado ao caso gerado',
+    filhos: 'regras',
+  },
 ];
 
 /** Os três efeitos de regra. Mesma máquina de filtros, três destinos. */

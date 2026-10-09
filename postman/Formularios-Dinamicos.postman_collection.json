@@ -2,7 +2,7 @@
   "info": {
     "name": "Salesforce · Formulários dinâmicos (fonte Custom)",
     "_postman_id": "9f2a1c40-5f1e-4c3a-9d21-7f4b2c8ad001",
-    "description": "As chamadas que montam e submetem um formulário dinâmico a partir de `FormDefinition__c`.\n\nA coleção roda **de cima para baixo**: cada pasta grava nas variáveis o que a próxima precisa. Rode `00 · Autenticação` primeiro e depois use o Collection Runner, ou dispare uma a uma na ordem.\n\n### Antes de começar\n\nPreencha o *environment* `Scratch org`:\n\n| variável | onde achar |\n| :-- | :-- |\n| `loginUrl` | `https://test.salesforce.com` para sandbox/scratch, `https://login.salesforce.com` para produção |\n| `clientId` / `clientSecret` | External Client App na org, com Client Credentials habilitado |\n| `instanceUrl` | preenchido automaticamente pela autenticação |\n\nComo atalho, dá para pular o OAuth e colar um token direto em `accessToken` + `instanceUrl`:\n\n```\nsf org auth show-access-token --no-prompt --json -o <alias>\n```\n\n> `sf org display` **não** serve: ele devolve o token como `[REDACTED]`.\n\n### Pastas\n\n- **00** autenticação e identidade\n- **01** as quatro chamadas que montam um formulário\n- **02** o envio, com e sem registros filhos\n- **03** o BFF — o contrato normalizado, que é o que os canais consomem\n- **04** alternativas medidas, incluindo as que **falham de propósito**\n- **05** diagnóstico\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n\nPesos e tempos citados nas descrições foram medidos numa scratch org com `Case` em 397 campos criáveis.",
+    "description": "As chamadas que montam e submetem um formulário dinâmico a partir de `FormDefinition__c`.\n\nA coleção roda **de cima para baixo**: cada pasta grava nas variáveis o que a próxima precisa. Rode `00 · Autenticação` primeiro e depois use o Collection Runner, ou dispare uma a uma na ordem.\n\n### Antes de começar\n\nPreencha o *environment* da org (`Scratch org` ou `FornoV1`), sempre na coluna **Current value**:\n\n| variável | onde achar |\n| :-- | :-- |\n| `loginUrl` | o **My Domain** da org, ex. `https://quintoandar--fornov1.sandbox.my.salesforce.com`. Client Credentials não aceita `test.salesforce.com` nem `login.salesforce.com` |\n| `clientId` / `clientSecret` | Consumer Key (começa com `3MVG`) e Consumer Secret do External Client App **da mesma org do `loginUrl`**, com Client Credentials habilitado |\n| `instanceUrl` | preenchido automaticamente pela autenticação |\n\nComo atalho, dá para pular o OAuth e colar um token direto em `accessToken` + `instanceUrl`:\n\n```\nsf org auth show-access-token --no-prompt --json -o <alias>\n```\n\n> `sf org display` **não** serve: ele devolve o token como `[REDACTED]`.\n\n### Pastas\n\n- **00** autenticação e identidade\n- **01** as quatro chamadas que montam um formulário\n- **02** o envio, com e sem registros filhos\n- **03** o BFF — o contrato normalizado, que é o que os canais consomem\n- **04** alternativas medidas, incluindo as que **falham de propósito**\n- **05** diagnóstico\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **07** o SLA do caso gerado\n- **08** o fluxo do SI, do envio aos SLAs — em passos ou num composite só\n- **SUBMIT** o submit do SI num composite só: envio, Caso, anexos e SLA\n\nPesos e tempos citados nas descrições foram medidos numa scratch org com `Case` em 397 campos criáveis.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -110,6 +110,37 @@
           "name": "Obter token · Client Credentials",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// `invalid_client_id` não diz qual das três variáveis está errada. Confere",
+                  "// antes de mandar, e mostra no Console o que vai sair de fato.",
+                  "const limpo = (k) => String(pm.variables.get(k) || '').trim();",
+                  "const loginUrl = limpo('loginUrl').replace(/\\/+$/, '');",
+                  "const clientId = limpo('clientId');",
+                  "const clientSecret = limpo('clientSecret');",
+                  "const ambiente = pm.environment.name || '(nenhum)';",
+                  "",
+                  "const faltando = Object.entries({ loginUrl, clientId, clientSecret }).filter(([, v]) => !v).map(([k]) => k);",
+                  "if (faltando.length) {",
+                  "  throw new Error('Vazio: ' + faltando.join(', ') + '. Environment selecionado: ' + ambiente + '. O Postman envia o Current value, não o Initial value.');",
+                  "}",
+                  "if (/^https:\\/\\/(login|test)\\.salesforce\\.com$/.test(loginUrl)) {",
+                  "  throw new Error('Client Credentials exige o My Domain da org (https://<org>.my.salesforce.com), não ' + loginUrl + '.');",
+                  "}",
+                  "if (!clientId.startsWith('3MVG')) console.warn('clientId não começa com 3MVG — é a Consumer Key, e não o Id do app?');",
+                  "",
+                  "// Um espaço colado junto vira outra chave. A variável local vence as",
+                  "// outras na resolução do {{ }}, então o corpo sai com o valor limpo.",
+                  "pm.variables.set('loginUrl', loginUrl);",
+                  "pm.variables.set('clientId', clientId);",
+                  "pm.variables.set('clientSecret', clientSecret);",
+                  "console.log('Token · ' + loginUrl + ' · clientId ' + clientId.slice(0, 8) + '… (' + clientId.length + ' caracteres) · environment ' + ambiente);"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -126,7 +157,16 @@
                   "  guardar('accessToken', j.access_token);",
                   "  guardar('instanceUrl', String(j.instance_url).replace(/\\/$/, ''));",
                   "  console.log('instanceUrl = ' + j.instance_url);",
-                  "}"
+                  "}",
+                  "",
+                  "// O erro do Salesforce não diz a causa; estas são as que já apareceram.",
+                  "const dicas = {",
+                  "  'client identifier invalid': 'a org em ' + pm.variables.get('loginUrl') + ' não conhece esta Consumer Key. O app foi criado em outra org (forno ≠ fornov1)? Ou acabou de ser criado — espere uns 10 min.',",
+                  "  'request not supported on this domain': 'use o My Domain da org no loginUrl, não test.salesforce.com nem login.salesforce.com.',",
+                  "  'no client credentials user enabled': 'falta o usuário \"Run As\" no Client Credentials Flow do app.',",
+                  "  'invalid client credentials': 'a Consumer Key existe, mas o Consumer Secret não confere.',",
+                  "};",
+                  "if (j.error) console.error(j.error + ': ' + (dicas[j.error_description] || j.error_description));"
                 ]
               }
             }
@@ -1775,7 +1815,7 @@
     },
     {
       "name": "08 · Fluxo do SI · envio → SLAs",
-      "description": "O fluxo inteiro do SI, de ponta a ponta: cria o envio do formulário e, logo em seguida, busca os SLAs do Caso que ele gerou.\n\n1. **Criar o envio**: `POST /sobjects/CaseFormSubmission__c`. Grava `submissionId`.\n2. **SLAs pelo envio**: a consulta que o SI usa (variante A). Grava `caseId` a partir do `CaseId` do retorno.\n3. **SLAs pelo Caso**: a variante B, com o `caseId` da anterior. Mesmo resultado.\n\nO Caso nasce por automação **depois** do envio, então logo após o POST a consulta pode vir vazia. A requisição 2 tenta de novo sozinha, até 5 vezes com 3 s de intervalo, mas **só no Collection Runner** (ou no `newman`): o \"Send\" avulso não repete.\n\n> **Cria registros de verdade**: o envio e o Caso que a automação gera. Use em sandbox.\n\nO corpo segue um envio real do formulário `owner_bank_data_change#10` no FornoV1, com dados de teste. Referência: `docs/SLA-Caso-Gerado.md`.",
+      "description": "O fluxo inteiro do SI, de ponta a ponta: cria o envio do formulário e, logo em seguida, busca os SLAs do Caso que ele gerou.\n\n1. **Criar o envio**: `POST /sobjects/CaseFormSubmission__c`. Grava `submissionId`.\n2. **SLAs pelo envio**: a consulta que o SI usa (variante A). Grava `caseId` a partir do `CaseId` do retorno.\n3. **SLAs pelo Caso**: a variante B, com o `caseId` da anterior. Mesmo resultado.\n4. **Tudo num composite**: o mesmo fluxo numa requisição só está na pasta `SUBMIT`.\n\nO Caso nasce por automação **depois** do envio, então logo após o POST a consulta pode vir vazia. A requisição 2 tenta de novo sozinha, até 5 vezes com 3 s de intervalo, mas **só no Collection Runner** (ou no `newman`): o \"Send\" avulso não repete.\n\n> **Cria registros de verdade**: o envio e o Caso que a automação gera. Use em sandbox.\n\nO corpo segue um envio real do formulário `owner_bank_data_change#10` no FornoV1, com dados de teste. Referência: `docs/SLA-Caso-Gerado.md`.",
       "item": [
         {
           "name": "1 · Criar o envio · CaseFormSubmission__c",
@@ -1939,6 +1979,80 @@
               ]
             },
             "description": "A variante B, com o `caseId` que a 2 tirou do retorno. Tem que devolver os mesmos registros."
+          }
+        }
+      ]
+    },
+    {
+      "name": "SUBMIT",
+      "description": "O submit do SI numa requisição só (`composite`, `allOrNone: true`): conta do solicitante, envio do formulário, Caso gerado, anexos e SLA.\n\nRequer `accessToken` e `instanceUrl` — rode `00 · Autenticação` antes.\n\n> **Cria registros de verdade.** Use em sandbox.",
+      "item": [
+        {
+          "name": "Composite · envio → Caso → anexos → SLA",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Environment vence collection na resolução: grava no environment se a chave existe lá.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.has(chave) ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const passos = pm.response.json().compositeResponse || [];",
+                  "passos.forEach((p) => console.log(p.referenceId + ' · ' + p.httpStatusCode));",
+                  "",
+                  "// Com allOrNone, uma falha desfaz tudo; as outras voltam PROCESSING_HALTED.",
+                  "const falha = passos.find((p) => p.httpStatusCode >= 400 && Array.isArray(p.body) && p.body[0].errorCode !== 'PROCESSING_HALTED');",
+                  "pm.test('nenhuma subrequisição falhou', () => pm.expect(falha ? falha.referenceId + ': ' + JSON.stringify(falha.body) : '').to.equal(''));",
+                  "if (falha) return;",
+                  "",
+                  "const corpo = Object.fromEntries(passos.map((p) => [p.referenceId, p.body]));",
+                  "guardar('submissionId', corpo.createSubmission.id);",
+                  "const caso = corpo.getCase.records[0];",
+                  "guardar('caseId', caso.Id);",
+                  "console.log('Envio ' + corpo.createSubmission.id + ' · Caso ' + caso.CaseNumber + ' (' + caso.Id + ')');",
+                  "",
+                  "const sla = corpo.getSla;",
+                  "console.log(sla.totalSize + ' SLA(s) do Caso ' + caso.CaseNumber);",
+                  "sla.records.forEach((m) => {",
+                  "  const status = m.IsCompleted ? (m.IsViolated ? 'concluído fora do prazo' : 'concluído') : (m.IsViolated ? 'VIOLADO' : 'em andamento');",
+                  "  console.log(m.MilestoneType.Name + ' · prazo ' + m.TargetDate + ' · ' + status + ' · restante ' + m.TimeRemainingInMins);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"allOrNone\": true,\n  \"compositeRequest\": [\n    {\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT+Id+FROM+RecordType+WHERE+SObjectType='Account'+AND+DeveloperName='PersonAccount'+LIMIT+1\",\n      \"referenceId\": \"getAccountRecordType\",\n      \"body\": null\n    },\n    {\n      \"method\": \"PATCH\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/Account/ExternalId__c/524259ea-fb28-431a-8439-babc37da03a8\",\n      \"referenceId\": \"upsertAccount\",\n      \"body\": {\n        \"FirstName\": \"Lucas\",\n        \"LastName\": \"C C M\",\n        \"PersonId__c\": \"524259ea-fb28-431a-8439-babc37da03a8\",\n        \"ExternalDomain__c\": \"person\",\n        \"RecordTypeId\": \"@{getAccountRecordType.records[0].Id}\",\n        \"MainId__c\": \"1604446\"\n      }\n    },\n    {\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/CaseFormSubmission__c\",\n      \"referenceId\": \"createSubmission\",\n      \"body\": {\n        \"RecordTypeId\": \"012be000002WjAYAA0\",\n        \"FormVersion__c\": \"owner_bank_data_change#11\",\n        \"Origin__c\": \"Web\",\n        \"RegisteredEmail__c\": \"lucas.maia@quintoandar.com.br\",\n        \"FullName__c\": \"Lucas C C M\",\n        \"DocumentType__c\": \"CNH\",\n        \"RequesterType__c\": \"Proprietário\",\n        \"IsPPMulti__c\": \"Sim\",\n        \"SameAccountAllContracts__c\": \"Sim\",\n        \"AccountHolderRelation__c\": \"Terceiro\",\n        \"AccountHolderDocumentType__c\": \"CPF\",\n        \"AccountHolderName__c\": \"JOAO TESTE\",\n        \"AccountHolderCPF__c\": \"12345678912\",\n        \"BankName__c\": \"Actinver ( 133 )\",\n        \"BankBranch__c\": \"3123131\",\n        \"BankBranchDigit__c\": \"21\",\n        \"BankAccount__c\": \"212121\",\n        \"BankAccountDigit__c\": \"21\",\n        \"BankAccountType__c\": \"Conta Corrente Conjunta\",\n        \"RequesterAccount__r\": {\n          \"ExternalId__c\": \"524259ea-fb28-431a-8439-babc37da03a8\"\n        }\n      }\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT+Id,CaseNumber,Status,Type,Priority,RecordType.DeveloperName,CreatedDate+FROM+Case+WHERE+RelatedCaseFormSubmission__c='@{createSubmission.id}'\",\n      \"referenceId\": \"getCase\",\n      \"body\": null\n    },\n    {\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/composite/sobjects\",\n      \"referenceId\": \"createContentDocumentLinks\",\n      \"body\": {\n        \"allOrNone\": true,\n        \"records\": [\n          {\n            \"attributes\": {\n              \"type\": \"ContentDocumentLink\"\n            },\n            \"ContentDocumentId\": \"069be000007OWtyAAG\",\n            \"LinkedEntityId\": \"@{getCase.records[0].Id}\",\n            \"ShareType\": \"V\",\n            \"Visibility\": \"AllUsers\"\n          },\n          {\n            \"attributes\": {\n              \"type\": \"ContentDocumentLink\"\n            },\n            \"ContentDocumentId\": \"069be000007OgYSAA0\",\n            \"LinkedEntityId\": \"@{getCase.records[0].Id}\",\n            \"ShareType\": \"V\",\n            \"Visibility\": \"AllUsers\"\n          },\n          {\n            \"attributes\": {\n              \"type\": \"ContentDocumentLink\"\n            },\n            \"ContentDocumentId\": \"069be000007OmFbAAK\",\n            \"LinkedEntityId\": \"@{getCase.records[0].Id}\",\n            \"ShareType\": \"V\",\n            \"Visibility\": \"AllUsers\"\n          }\n        ]\n      }\n    },\n    {\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT+FIELDS(ALL),+MilestoneType.Name+FROM+CaseMilestone+WHERE+CaseId+=+'@{getCase.records[0].Id}'+AND+MilestoneType.Name+=+'SLA+de+atendimento'+LIMIT+200\",\n      \"referenceId\": \"getSla\",\n      \"body\": null\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/composite",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "composite"
+              ]
+            },
+            "description": "O fluxo do SI numa requisição só: busca o Record Type de pessoa, faz upsert da conta do solicitante, cria o envio (`owner_bank_data_change#11`), lê o Caso que o trigger gerou, anexa os documentos ao Caso e, por fim, busca os SLAs dele.\n\nFunciona numa viagem porque o Caso nasce **na mesma transação** do envio: `CaseFormSubmissionTrigger` o insere no after insert. Por isso `getCase` já o encontra, e `getSla` filtra por `CaseId = @{getCase.records[0].Id}`.\n\n`allOrNone: true`: se uma subrequisição falhar, nada fica gravado. Zero SLAs não é falha — o Caso só tem milestone se entrou num processo de direito.\n\nO filtro traz só o prazo \"SLA de atendimento\"; para outros tipos, ver a seção 2 de `docs/SLA-Caso-Gerado.md`. Os `ContentDocumentId` e o `ExternalId__c` da conta são dados de teste do FornoV1.\n\nGuia completo: `docs/SLA-Caso-Gerado.md`.\n\n> **Cria registros de verdade.** Use em sandbox."
           }
         }
       ]

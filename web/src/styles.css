@@ -912,6 +912,33 @@ dl.created.injected dt.mono {
 .btn-lista {
   align-self: flex-start;
 }
+
+/* --- referência múltipla -------------------------------------------------- */
+
+/* Mesmo verde da lista repetível: as duas multiplicam registros do outro lado. */
+.section > .body > .field.multiref {
+  grid-column: 1 / -1;
+}
+.multiref-linha {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.multiref-linha input {
+  flex: 1 1 auto;
+}
+.multiref-remover {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  cursor: pointer;
+  padding: 6px 9px;
+  line-height: 1;
+}
+.multiref-remover:hover {
+  border-color: var(--erro, #c23934);
+}
 .btn-lista:disabled {
   opacity: 0.5;
   cursor: not-allowed;

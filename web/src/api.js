@@ -47,6 +47,10 @@ export async function submit(contract, values) {
 export const getSla = (via, id) =>
   get(`/api/sla?${new URLSearchParams({ [via === 'case' ? 'caseId' : 'submissionId']: id })}`);
 
+/** Registros que o seletor de referência sugere: `{ soql, records: [{ id, externalId, name }] }`. */
+export const getReferences = ({ object, externalIdField, term = '' }) =>
+  get(`/api/references?${new URLSearchParams({ object, externalIdField, term })}`);
+
 /** Repete uma das chamadas do BFF e devolve o retorno cru, sem afetar a tela. */
 export async function replay(path, replayId) {
   const res = await fetch('/api/replay', {

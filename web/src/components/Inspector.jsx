@@ -411,6 +411,13 @@ function CreateResult({ result, objeto }) {
           )}
         </dl>
         {result.attachmentsNote && <div className="help">{result.attachmentsNote}</div>}
+        {result.vinculos?.length > 0 && (
+          <div className="help">
+            {result.vinculos.length} {result.vinculos[0].object} criado(s) no Caso gerado:{' '}
+            {result.vinculos.map((v) => `${v.externalId} → ${v.id}`).join(' · ')}. O{' '}
+            <code>RelatedContract__c</code> é preenchido pelo trigger quando o id externo existe.
+          </div>
+        )}
       </div>
 
       {/* key: um registro novo é outro teste — o painel recomeça e busca sozinho. */}

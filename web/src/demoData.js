@@ -204,12 +204,16 @@ const ID_EXTERNO_DEMO = {
   PROPERTY: 'prop_1042',
 };
 
+const idDemo = (f) => ID_EXTERNO_DEMO[f.reference?.type] ?? `ext_${f.reference?.type ?? 'ref'}_0001`.toLowerCase();
+
 const referenciasDemo = (contract) =>
   Object.fromEntries(
     contract.sections
       .flatMap((s) => s.fields)
-      .filter((f) => f.kind === 'reference')
-      .map((f) => [f.apiName, ID_EXTERNO_DEMO[f.reference?.type] ?? `ext_${f.reference?.type ?? 'ref'}_0001`.toLowerCase()])
+      .filter((f) => f.kind === 'reference' || f.kind === 'multireference')
+      // Referência múltipla recebe duas linhas, para o payload mostrar um
+      // CaseContract__c por contrato.
+      .map((f) => [f.apiName, f.kind === 'multireference' ? [idDemo(f), `${idDemo(f)}_2`] : idDemo(f)])
   );
 
 export function cenariosPara(contract) {

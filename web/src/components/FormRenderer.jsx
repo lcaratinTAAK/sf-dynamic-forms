@@ -1,7 +1,110 @@
+import { useEffect, useState } from 'react';
 import Field from './Field.jsx';
 import { cenariosPara, suportaDemo } from '../demoData.js';
+import * as api from '../api.js';
 // O MESMO avaliador que o servidor usa. Um módulo puro, sem I/O.
-import { isVisible, validar } from '../../../server/contract.js';
+import { isRequired, isVisible, validar } from '../../../server/contract.js';
+
+/**
+ * Referência múltipla: uma linha por contrato, com "Nova linha" e lixeira.
+ *
+ * A resposta é um array de ids externos em `values[item.apiName]`. Nada disso
+ * vai no registro do formulário: cada linha preenchida vira um
+ * `CaseContract__c` ligado ao Caso gerado (ver `subrequisicoesDeVinculo`).
+ *
+ * Na POC não há cliente logado para listar os contratos DELE, então as
+ * sugestões vêm da org pelo BFF; digitar um id externo à mão continua valendo,
+ * como no campo de referência simples.
+ */
+function ReferenciaMultipla({ item, values, onChange, erro }) {
+  const brutos = Array.isArray(values[item.apiName]) ? values[item.apiName] : [];
+  // Nunca zero linhas: sempre há onde digitar o primeiro contrato.
+  const linhas = brutos.length ? brutos : [''];
+  const obrigatorio = isRequired(item, values);
+
+  const [termo, setTermo] = useState('');
+  const [sugestoes, setSugestoes] = useState([]);
+  const [falhaBusca, setFalhaBusca] = useState(null);
+  const { object, externalIdField } = item.reference ?? {};
+
+  // Busca com atraso: uma ida ao Salesforce por pausa na digitação, não por tecla.
+  useEffect(() => {
+    if (!object || !externalIdField) return undefined;
+    let vivo = true;
+    const t = setTimeout(() => {
+      api
+        .getReferences({ object, externalIdField, term: termo })
+        .then((r) => {
+          if (!vivo) return;
+          setSugestoes(r.records);
+          setFalhaBusca(null);
+        })
+        .catch((e) => vivo && setFalhaBusca(e.message));
+    }, 300);
+    return () => {
+      vivo = false;
+      clearTimeout(t);
+    };
+  }, [object, externalIdField, termo]);
+
+  const gravar = (novas) => onChange(item.apiName, novas);
+  const listaId = `sugestoes-${item.apiName}`;
+
+  return (
+    <div className={`field multiref is-wide${erro ? ' is-invalid' : ''}`}>
+      <label>
+        {item.label}
+        {obrigatorio && <span className="req" title="obrigatório">*</span>}
+        <span className="ruled ruled-lista">
+          cada linha vira um <code>{item.link?.object}</code>
+        </span>
+      </label>
+
+      {linhas.map((valor, i) => (
+        <div className="multiref-linha" key={i}>
+          <input
+            type="text"
+            list={listaId}
+            value={valor}
+            placeholder={item.placeholder || `id externo do ${object ?? 'registro'}`}
+            onChange={(e) => {
+              setTermo(e.target.value);
+              gravar(linhas.map((v, j) => (j === i ? e.target.value : v)));
+            }}
+          />
+          <button
+            type="button"
+            className="multiref-remover"
+            onClick={() => gravar(linhas.filter((_, j) => j !== i))}
+            aria-label={`Excluir linha ${i + 1}`}
+            title="Excluir linha"
+          >
+            🗑
+          </button>
+        </div>
+      ))}
+
+      <datalist id={listaId}>
+        {sugestoes.map((s) => (
+          <option key={s.id} value={s.externalId}>
+            {s.name ?? s.externalId}
+          </option>
+        ))}
+      </datalist>
+
+      <button type="button" className="btn ghost small btn-lista" onClick={() => gravar([...linhas, ''])}>
+        + Nova linha
+      </button>
+
+      {item.helpText && <span className="help">{item.helpText}</span>}
+      <span className="help">
+        Escolha em <code>{object}</code> por <code>{externalIdField}</code>
+        {falhaBusca ? ` · sem sugestões (${falhaBusca}); digite o id externo` : ''}
+      </span>
+      {erro && <span className="erro-validacao">{erro}</span>}
+    </div>
+  );
+}
 
 /**
  * Um item de seção. As três primeiras fontes só produzem campos; a fonte
@@ -30,6 +133,10 @@ function Componente({ item, values, onChange, files, onFiles, erro }) {
         </div>
       </div>
     );
+  }
+
+  if (kind === 'multireference') {
+    return <ReferenciaMultipla item={item} values={values} onChange={onChange} erro={erro} />;
   }
 
   if (kind === 'attachment') {

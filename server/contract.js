@@ -15,10 +15,14 @@
  *     id, label,
  *     fields: [{
  *       apiName, label, dataType, required, readOnly, helpText, maxLength,
- *       kind: 'field' | 'reference' | 'attachment' | 'content',
+ *       kind: 'field' | 'reference' | 'multireference' | 'attachment' | 'content',
  *       reference: { type, object, externalIdField } | undefined,
  *                                          // kind=reference: o campo é o id externo de um registro que o
  *                                          // usuário ESCOLHE (contrato, imóvel); vai como TEXTO no submit
+ *       link: { object, caseField, externalIdField, submissionField } | undefined,
+ *                                          // kind=multireference: o usuário escolhe VÁRIOS contratos; nada
+ *                                          // vai no registro do formulário, cada escolha vira um `object`
+ *                                          // (CaseContract__c) ligado ao Caso que o envio gera
  *       options: [{ value, label, validFor }] | null,
  *       controllerField: string | null,
  *       visibility: Visibility | null
@@ -50,6 +54,27 @@ export const OPERATORS = Object.freeze({
 
 /** Fields and references both carry an answer into the record; content and attachments do not. */
 export const isFieldLike = (f) => (f.kind ?? 'field') === 'field' || f.kind === 'reference';
+
+/**
+ * Referência múltipla: não grava no registro do formulário. Cada escolha vira
+ * um registro de `link.object` ligado ao Caso gerado — por isso fica fora de
+ * `isFieldLike`.
+ */
+export const isMultiReference = (f) => f.kind === 'multireference';
+
+/** Os ids externos escolhidos numa referência múltipla, sem linha vazia. */
+export function escolhidosDe(item, values) {
+  const brutos = Array.isArray(values?.[item.apiName]) ? values[item.apiName] : [];
+  return brutos.map((v) => String(v ?? '').trim()).filter(Boolean);
+}
+
+/** O mesmo contrato duas vezes viraria dois vínculos iguais. */
+function repetidos(lista) {
+  const vistos = new Set();
+  const dobrados = new Set();
+  for (const v of lista) (vistos.has(v) ? dobrados : vistos).add(v);
+  return [...dobrados];
+}
 
 export function emptyContract(source, objectApiName) {
   return {
@@ -321,9 +346,15 @@ export function validar(contract, values) {
   for (const secao of contract.sections || []) {
     if (!isVisible(secao, values)) continue;
     for (const item of secao.fields || []) {
-      if (!item.validation || !isVisible(item, values)) continue;
-      if (avaliarGrupo(item.validation, values, false)) {
+      if (!isVisible(item, values)) continue;
+      if (item.validation && avaliarGrupo(item.validation, values, false)) {
         erros.push({ apiName: item.apiName, message: item.validation.message });
+      }
+      if (isMultiReference(item)) {
+        const dobrados = repetidos(escolhidosDe(item, values));
+        if (dobrados.length) {
+          erros.push({ apiName: item.apiName, message: `Contrato repetido: ${dobrados.join(', ')}` });
+        }
       }
     }
   }
@@ -571,6 +602,9 @@ export function buildSubmitPayload(contract, values) {
   const { itens, problemasDeLista } = montarItensDeLista(listas, values);
   missing.push(...problemasDeLista);
 
+  const { vinculos, problemasDeVinculo } = montarVinculos(secoesSimples, values);
+  missing.push(...problemasDeVinculo);
+
   const invalid2 = invalid;
 
   return {
@@ -578,13 +612,14 @@ export function buildSubmitPayload(contract, values) {
     missing,
     invalid: invalid2,
     listas: itens,
+    vinculos,
     hiddenFieldsIgnored: todosOsCampos
       .filter((f) => !visible.includes(f))
       .map((f) => f.apiName),
     injectedFields: backendFields,
     injectedOverwroteForm: overwritten,
-    request: itens.length
-      ? montarComposite(contract, record, itens)
+    request: itens.length || vinculos.length
+      ? montarComposite(contract, record, itens, vinculos)
       : {
           method: 'POST',
           url: `/services/data/vXX.X/sobjects/${contract.object}`,
@@ -647,6 +682,84 @@ function montarItensDeLista(listas, values) {
 }
 
 /**
+ * Os contratos escolhidos nas referências múltiplas visíveis, um vínculo por
+ * contrato. Linha vazia é descartada em silêncio, como item de lista vazio.
+ */
+function montarVinculos(secoesSimples, values) {
+  const vinculos = [];
+  const problemasDeVinculo = [];
+
+  const multiplas = secoesSimples
+    .filter((s) => isVisible(s, values))
+    .flatMap((s) => s.fields)
+    .filter((f) => isMultiReference(f) && isVisible(f, values));
+
+  for (const f of multiplas) {
+    // Repetido já é invalidez (ver `validar`); aqui só não vira dois registros.
+    const escolhidos = [...new Set(escolhidosDe(f, values))];
+    if (escolhidos.length === 0 && isRequired(f, values)) {
+      problemasDeVinculo.push(`${f.label} (nenhum contrato)`);
+    }
+    for (const externalId of escolhidos) {
+      vinculos.push({
+        origem: f.apiName,
+        object: f.link.object,
+        caseField: f.link.caseField,
+        submissionField: f.link.submissionField,
+        record: { [f.link.externalIdField]: externalId },
+      });
+    }
+  }
+
+  return { vinculos, problemasDeVinculo };
+}
+
+/** referenceId da consulta que acha o Caso gerado pelo envio. */
+export const REF_CASO = 'casoGerado';
+
+/**
+ * As subrequisições que ligam os contratos escolhidos ao Caso.
+ *
+ * O registro do formulário não é o Caso: o Caso nasce no trigger after insert
+ * do envio, na MESMA transação, com o Id do envio em `submissionField`
+ * (Case.RelatedCaseFormSubmission__c). Então uma consulta
+ * logo depois do POST já o encontra, e cada vínculo usa
+ * `@{casoGerado.records[0].Id}`. Formulário que cria o próprio Case dispensa
+ * a consulta.
+ *
+ * Uma subrequisição por contrato, e não um `composite/sobjects` com a lista:
+ * a coleção reporta a falha de cada registro DENTRO de uma resposta 200, e o
+ * `allOrNone` de fora decide pelo status da subrequisição. Com um POST por
+ * registro, a falha é um 400 e a transação inteira volta, envio incluído.
+ *
+ * A referência dentro da URL vai crua, sem encode — encodada, a consulta
+ * devolve 200 com zero registros (ver `schemaEFormulario`).
+ */
+export function subrequisicoesDeVinculo(objetoPai, vinculos, refPai, versao) {
+  if (!vinculos?.length) return [];
+  const subrequests = [];
+  let idDoCaso = `@{${refPai}.id}`;
+  if (objetoPai !== 'Case') {
+    const campo = vinculos[0].submissionField;
+    subrequests.push({
+      referenceId: REF_CASO,
+      method: 'GET',
+      url: `/services/data/${versao}/query?q=SELECT+Id+FROM+Case+WHERE+${campo}='@{${refPai}.id}'+LIMIT+1`,
+    });
+    idDoCaso = `@{${REF_CASO}.records[0].Id}`;
+  }
+  vinculos.forEach((v, i) => {
+    subrequests.push({
+      referenceId: `vinculo${i + 1}`,
+      method: 'POST',
+      url: `/services/data/${versao}/sobjects/${v.object}`,
+      body: { ...v.record, [v.caseField]: idDoCaso },
+    });
+  });
+  return subrequests;
+}
+
+/**
  * O Caso ainda não existe quando o cliente preenche, então os itens não têm o
  * id do pai para gravar. O composite resolve isso dentro da própria transação:
  * o `referenceId` da primeira subrequisição vira `@{ref.id}` nas seguintes.
@@ -654,7 +767,7 @@ function montarItensDeLista(listas, values) {
  * `allOrNone` porque um Caso sem os membros que o justificam é pior que erro
  * nenhum — a pessoa reenviaria e criaria um Caso duplicado.
  */
-function montarComposite(contract, record, itens) {
+function montarComposite(contract, record, itens, vinculos = []) {
   const REF_PAI = 'refPai';
   const subrequests = [
     {
@@ -673,6 +786,8 @@ function montarComposite(contract, record, itens) {
       body: { ...item.record, [item.relationshipField]: `@{${REF_PAI}.id}` },
     });
   });
+
+  subrequests.push(...subrequisicoesDeVinculo(contract.object, vinculos, REF_PAI, 'vXX.X'));
 
   return {
     method: 'POST',

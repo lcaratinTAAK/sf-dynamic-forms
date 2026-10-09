@@ -21,6 +21,7 @@ import {
   SalesforceError,
   schemaEFormulario,
   buscarSla,
+  buscarReferencias,
 } from './salesforce.js';
 import { buildSubmitPayload, indexarCampos } from './contract.js';
 import * as uiapi from './adapters/uiapi.js';
@@ -420,12 +421,16 @@ app.post('/api/create-record', async (req, res) => {
       });
     }
 
-    // O payload inteiro, e não só o registro: é ele que carrega os itens de lista.
+    // O payload inteiro, e não só o registro: é ele que carrega os itens de
+    // lista e os vínculos de contrato.
     const composite = await createRecordComposite(contract.object, payload);
     const respostas = composite.compositeResponse ?? [];
     const criacao = respostas[0];
     const leitura = respostas[respostas.length - 1];
-    const filhos = respostas.slice(1, -1);
+    // Pelo referenceId, e não pela posição: entre os itens e a leitura final
+    // agora podem vir a consulta do Caso e os vínculos.
+    const filhos = respostas.filter((r) => /^item\d+$/.test(r?.referenceId ?? ''));
+    const vinculos = respostas.filter((r) => /^vinculo\d+$/.test(r?.referenceId ?? ''));
 
     // Composite devolve 200 no envelope mesmo quando um subrequest falha. E
     // quando o PAI falha, os filhos reportam "Could not find the referenced
@@ -434,13 +439,24 @@ app.post('/api/create-record', async (req, res) => {
     const falhou = respostas.find((r) => r && r.httpStatusCode >= 300);
     if (falhou) {
       const ehPai = falhou === criacao;
+      const ehVinculo = /^vinculo\d+$/.test(falhou.referenceId ?? '');
       const erro = Array.isArray(falhou.body) ? falhou.body[0] : falhou.body;
+      // Consulta do Caso vazia faz o vínculo falhar com "No value for
+      // casoGerado.records[0].Id": o sintoma. A causa é o envio não ter
+      // gerado Caso, e é isso que vale dizer.
+      const semCaso = ehVinculo && /casoGerado/.test(erro?.message ?? '');
       return res.status(422).json({
         ok: false,
-        error: erro?.message || 'O Salesforce recusou a criação.',
+        error: semCaso
+          ? 'O envio não gerou Caso, então não há onde ligar os contratos. O caso auxiliar está ligado para este formulário (flag eng_rls_case_form_submission_aux e CreateAuxiliaryCase__c)? Nada foi criado.'
+          : erro?.message || 'O Salesforce recusou a criação.',
         errorCode: erro?.errorCode ?? null,
         fields: erro?.fields ?? [],
-        onde: ehPai ? contract.object : `item da lista (${falhou.referenceId})`,
+        onde: ehPai
+          ? contract.object
+          : ehVinculo
+            ? `vínculo de contrato (${falhou.referenceId})`
+            : `item da lista (${falhou.referenceId})`,
         composite,
       });
     }
@@ -453,6 +469,14 @@ app.post('/api/create-record', async (req, res) => {
         object: payload.listas?.[i]?.object ?? null,
         id: f.body?.id ?? null,
       })),
+      vinculos: vinculos.map((r, i) => {
+        const v = payload.vinculos?.[i];
+        return {
+          object: v?.object ?? null,
+          externalId: v ? Object.values(v.record)[0] : null,
+          id: r.body?.id ?? null,
+        };
+      }),
       attachmentsNote: Array.isArray(values.__attachments) && values.__attachments.length
         ? `${values.__attachments.length} anexo(s) selecionado(s) não foram enviados: a POC não faz upload de arquivo.`
         : null,
@@ -460,6 +484,31 @@ app.post('/api/create-record', async (req, res) => {
     });
   } catch (err) {
     fail(res, err);
+  }
+});
+
+// --- seletor de referência ---------------------------------------------------
+
+/**
+ * Sugestões para o seletor de contratos da referência múltipla.
+ *
+ *   GET /api/references?object=Contract&externalIdField=ExternalId__c&term=ctr
+ *
+ * Objeto e campo passam por allowlist em `buscarReferencias`.
+ */
+app.get('/api/references', async (req, res) => {
+  try {
+    ok(
+      res,
+      await buscarReferencias({
+        objeto: String(req.query.object ?? ''),
+        campoExterno: String(req.query.externalIdField ?? ''),
+        termo: String(req.query.term ?? ''),
+      })
+    );
+  } catch (err) {
+    if (err instanceof SalesforceError) return fail(res, err);
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -509,5 +558,6 @@ app.listen(config.port, () => {
   console.log(`  GET  /api/form?source=uiapi&recordTypeId=...`);
   console.log(`  GET  /api/form?source=screenflow&formId=...`);
   console.log(`  POST /api/submit`);
+  console.log(`  GET  /api/references?object=Contract&externalIdField=ExternalId__c&term=...`);
   console.log(`  GET  /api/sla?submissionId=...  |  /api/sla?caseId=...\n`);
 });

@@ -13,6 +13,9 @@
  *   Form        a raiz — objeto e Record Type de destino, canal, Tipo do registro
  *   Section     agrupamento, com visibilidade própria
  *   Field       campo, vinculado a um campo do SObject
+ *   Reference   campo em que o usuário escolhe UM registro (vai como texto)
+ *   MultiReference  o usuário escolhe VÁRIOS contratos; cada um vira um
+ *               CaseContract__c ligado ao Caso gerado, nada no registro
  *   Attachment  documento exigido, tratado como componente
  *   Rule        regra de visibilidade, filha do componente que afeta
  *   Content     bloco de texto estático
@@ -47,6 +50,20 @@ import {
 import { config } from '../config.js';
 
 const OBJ = config.formsObject || 'FormDefinition__c';
+
+/**
+ * Para onde vai cada contrato de uma referência múltipla. Fixo, como no
+ * Salesforce: o Form Builder só aceita `Contract` nesse componente, e o
+ * vínculo é sempre `CaseContract__c`. O trigger dele resolve o id externo no
+ * lookup `RelatedContract__c`.
+ */
+const VINCULO_CONTRATO = Object.freeze({
+  object: 'CaseContract__c',
+  caseField: 'Case__c',
+  externalIdField: 'RelatedContractExternalId__c',
+  // O lookup do Caso que aponta para o envio — o mesmo caminho do SLA.
+  submissionField: config.slaSubmissionField,
+});
 
 const CAMPOS = `Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Width__c,
   ObjectApiName__c, TargetRecordTypeDevName__c,
@@ -453,6 +470,30 @@ export function specToContract(
       };
       anexos.push(item);
       return item;
+    }
+
+    if (t === 'MultiReference') {
+      // Sem FieldApiName__c: as escolhas não vão no registro do formulário.
+      // O apiName é só a chave da resposta em `values` — o Id da linha, para
+      // duas referências múltiplas no mesmo formulário não colidirem.
+      return {
+        kind: 'multireference',
+        apiName: `__multiref_${r.Id}`,
+        label: r.LabelOverride__c || r.Name,
+        helpText: r.HelpTextOverride__c ?? null,
+        placeholder: r.Placeholder__c ?? null,
+        required: r.IsRequired__c === true,
+        reference: {
+          type: r.ReferenceType__c ?? null,
+          object: r.ReferenceObjectApiName__c ?? null,
+          externalIdField: r.ExternalIdFieldApiName__c ?? null,
+        },
+        link: VINCULO_CONTRATO,
+        width: r.Width__c ?? 'FULL',
+        visibility: visibilidadeDe(r),
+        requiredWhen: obrigatoriedadeDe(r),
+        validation: validacaoDe(r),
+      };
     }
 
     if (t === 'Field' || t === 'Reference') {

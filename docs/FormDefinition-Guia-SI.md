@@ -6,7 +6,7 @@ Fonte de verdade: `force-app/main/default/objects/FormDefinition__c` na branch `
 
 ## 1. Como a tabela funciona
 
-- **Uma tabela, oito papéis.** Toda linha é um `FormDefinition__c`. O Record Type (`RecordType.DeveloperName`) diz o que a linha é: `Form`, `Section`, `RepeatingSection`, `Field`, `Reference`, `Attachment`, `Content`, `Rule`.
+- **Uma tabela, nove papéis.** Toda linha é um `FormDefinition__c`. O Record Type (`RecordType.DeveloperName`) diz o que a linha é: `Form`, `Section`, `RepeatingSection`, `Field`, `Reference`, `MultiReference`, `Attachment`, `Content`, `Rule`.
 - **`Form__c` aponta para a raiz em toda linha que não é raiz.** É o que permite trazer a definição inteira em uma SOQL: `WHERE Id = :formId OR Form__c = :formId`.
 - **`Parent__c` monta a árvore.** Vazio na raiz e nos filhos diretos dela (seções, listas). Em `Rule`, aponta para o componente que a regra afeta.
 - **Uma linha usa só as colunas do seu Record Type.** As demais voltam nulas ou com o valor padrão da picklist (`Effect__c = SHOW`, `Width__c = FULL`, `FilterLogicType__c = ALL`, `Channel__c = ONLINE`). Esses defaults em linhas de outro tipo não significam nada. Leia cada linha pela tabela do seu RT e ignore o resto.
@@ -47,6 +47,7 @@ Regra prática: selecione só o que o seu lado lê. Coluna a menos na SOQL é co
 | `RepeatingSection` | lista repetível; cada item vira um registro de outro objeto | raiz | Field (que endereçam o objeto filho) |
 | `Field` | um campo do objeto de destino | Section, RepeatingSection ou raiz | Rule |
 | `Reference` | um campo de texto em que o usuário **escolhe** um registro de outro objeto (contrato, imóvel) | Section ou raiz | Rule |
+| `MultiReference` | o usuário escolhe **um ou mais** contratos; cada um vira um `CaseContract__c` ligado ao caso gerado | Section ou raiz | Rule |
 | `Attachment` | documento exigido, posicionado como componente | Section ou raiz | Rule |
 | `Content` | bloco de texto HTML fixo | Section ou raiz | Rule |
 | `Rule` | uma condição (mostrar, exigir ou bloquear) | o componente afetado | — |
@@ -90,7 +91,7 @@ SELECT Id, RecordType.DeveloperName, Parent__c, Form__c,
        ChildObjectApiName__c, ChildRelationshipField__c
 FROM FormDefinition__c
 WHERE (Id = :formId OR Form__c = :formId) AND IsActive__c = true
-  AND RecordType.DeveloperName IN ('Form', 'RepeatingSection', 'Field', 'Reference')
+  AND RecordType.DeveloperName IN ('Form', 'RepeatingSection', 'Field', 'Reference', 'MultiReference')
 ```
 
 Para resolver pela chave em vez do Id: `WHERE FormKey__c = 'bank_data_change' AND IsActive__c = true AND RecordType.DeveloperName = 'Form'` devolve a raiz ativa; depois as consultas acima com o Id dela.
@@ -421,6 +422,28 @@ WHERE Category__c = 'Reference' AND IsActive__c = true
 ORDER BY SourceObjectApiName__c, MasterLabel
 ```
 
+### 11.1 `MultiReference` — vários contratos numa pergunta
+
+O usuário escolhe **um ou mais** contratos ("Quais contratos?"). O front desenha uma linha por contrato, com "nova linha" e excluir linha; cada linha é o mesmo seletor da `Reference`. A diferença está no submit: **nada vai no registro do formulário**. Cada contrato escolhido vira um `CaseContract__c` ligado ao caso que o envio gera.
+
+As colunas são as da `Reference`, com duas diferenças:
+
+| Rótulo | API Name | Quem lê | Descrição |
+| :-- | :-- | :-- | :-- |
+| Campo do objeto (API Name) | `FieldApiName__c` | — | **Sempre vazio.** Não há campo no objeto do formulário. |
+| Objeto referenciado | `ReferenceObjectApiName__c` | Front | Sempre `Contract`. O Form Builder recusa outra entidade nesse componente. |
+
+`ReferenceType__c`, `ExternalIdFieldApiName__c`, `LabelOverride__c`, `HelpTextOverride__c`, `IsRequired__c`, `Width__c` e as lógicas funcionam como na `Reference`. Obrigatória significa "pelo menos um contrato". O mesmo contrato duas vezes não deve ser enviado.
+
+O vínculo é fixo, não vem da tabela:
+
+| `CaseContract__c` | Valor |
+| :-- | :-- |
+| `Case__c` | o caso gerado pelo envio |
+| `RelatedContractExternalId__c` | o `ExternalId__c` do contrato escolhido, como texto |
+
+O trigger do `CaseContract__c` procura o contrato por esse id externo e preenche o lookup `RelatedContract__c`. Id que não existe não bloqueia: o registro é criado com o lookup vazio e o texto fica para rastreio. O `CaseContract__c` exige o caso auxiliar ligado no formulário; sem caso não há onde ligar os contratos.
+
 ## 12. O que gravar no submit
 
 O SI cria o registro em `ObjectApiName__c` com três coisas. Nada além disso.
@@ -461,6 +484,30 @@ POST /services/data/v66.0/composite
   ]
 }
 ```
+
+Com `MultiReference`: depois do registro, uma consulta acha o caso gerado e cada contrato vira um `POST` de `CaseContract__c`. O caso nasce no trigger do envio, na mesma transação, então a consulta já o encontra.
+
+```http
+POST /services/data/v66.0/composite
+{
+  "allOrNone": true,
+  "compositeRequest": [
+    { "referenceId": "createSubmission", "method": "POST", "url": "/services/data/v66.0/sobjects/CaseFormSubmission__c",
+      "body": { "FormVersion__c": "owner_bank_data_change#12", "...": "..." } },
+    { "referenceId": "getCase", "method": "GET",
+      "url": "/services/data/v66.0/query?q=SELECT+Id+FROM+Case+WHERE+RelatedCaseFormSubmission__c='@{createSubmission.id}'+LIMIT+1" },
+    { "referenceId": "caseContract1", "method": "POST", "url": "/services/data/v66.0/sobjects/CaseContract__c",
+      "body": { "Case__c": "@{getCase.records[0].Id}", "RelatedContractExternalId__c": "ctr_8821" } },
+    { "referenceId": "caseContract2", "method": "POST", "url": "/services/data/v66.0/sobjects/CaseContract__c",
+      "body": { "Case__c": "@{getCase.records[0].Id}", "RelatedContractExternalId__c": "ctr_9034" } }
+  ]
+}
+```
+
+- **Um `POST` por contrato**, não `composite/sobjects` com a lista. A coleção reporta a falha de cada registro dentro de uma resposta 200, e o `allOrNone` de fora decide pelo status da subrequisição. Com um `POST` por registro, uma falha desfaz o envio inteiro.
+- **Referência crua na URL.** `@{createSubmission.id}` vai sem encode; encodada, a consulta devolve 200 com zero registros.
+- **Limite do composite: 25 subrequisições.** Conte o envio, a consulta do caso, os contratos e os itens de lista.
+- **Formulário em `Case`:** sem a consulta, `Case__c` recebe `@{createSubmission.id}`.
 
 ## 13. Depois do submit: o SLA do caso gerado
 

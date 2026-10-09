@@ -8,8 +8,10 @@
  */
 
 import { readFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
 import { flowMetadataToContract } from '../server/adapters/screenflow.js';
 import { layoutToContract } from '../server/adapters/uiapi.js';
+import { specToContract } from '../server/adapters/formspec.js';
 import { isVisible, buildSubmitPayload } from '../server/contract.js';
 
 // Os fixtures foram capturados via PowerShell, que grava UTF-8 com BOM.
@@ -133,6 +135,75 @@ line(`  com anexo → válido? ${comAnexo.valid}   faltando: ${comAnexo.missing.
 line();
 line('  request que seria enviado:');
 line(JSON.stringify(comAnexo.request, null, 2).split('\n').map((l) => '    ' + l).join('\n'));
+
+// ---------------------------------------------------------------------------
+line();
+rule();
+line('REFERÊNCIA MÚLTIPLA — FormDefinition__c → contrato → composite');
+rule();
+
+// Linhas sintéticas no formato da SOQL do adaptador: a raiz e um componente.
+const FORM_ID = 'a1Xbe000000MULTI';
+const MULTI_ID = 'a1Xbe000000MREF1';
+const linhasMulti = [
+  {
+    Id: FORM_ID,
+    Name: 'teste_multi',
+    RecordType: { DeveloperName: 'Form' },
+    ObjectApiName__c: 'CaseFormSubmission__c',
+    TargetRecordTypeDevName__c: 'BankDataChange',
+    VersionFieldApiName__c: 'FormVersion__c',
+    Version__c: 1,
+  },
+  {
+    Id: MULTI_ID,
+    Name: 'Contrato',
+    RecordType: { DeveloperName: 'MultiReference' },
+    Form__c: FORM_ID,
+    Sort__c: 10,
+    LabelOverride__c: 'Quais contratos?',
+    IsRequired__c: true,
+    ReferenceType__c: 'CONTRACT',
+    ReferenceObjectApiName__c: 'Contract',
+    ExternalIdFieldApiName__c: 'ExternalId__c',
+  },
+];
+const contratoMulti = specToContract(linhasMulti, {
+  formId: FORM_ID,
+  objectApiName: 'CaseFormSubmission__c',
+  indiceDeCampos: {},
+  picklists: null,
+  rt: { Id: '012be000000RTXX', Name: 'Bank data change' },
+});
+const multi = contratoMulti.sections[0].fields[0];
+assert.equal(multi.kind, 'multireference');
+assert.equal(multi.label, 'Quais contratos?');
+assert.equal(multi.link.object, 'CaseContract__c');
+line(`  componente      : ${multi.apiName} (${multi.kind}) → ${multi.link.object}`);
+
+const chave = multi.apiName;
+
+const vazio = buildSubmitPayload(contratoMulti, { [chave]: ['', '  '] });
+assert.equal(vazio.valid, false, 'obrigatória sem contrato não envia');
+line(`  sem contrato    → válido? ${vazio.valid}   faltando: ${vazio.missing.join(', ')}`);
+
+const repetido = buildSubmitPayload(contratoMulti, { [chave]: ['ctr_1', 'ctr_1'] });
+assert.equal(repetido.valid, false, 'contrato repetido não envia');
+line(`  repetido        → válido? ${repetido.valid}   ${repetido.invalid.map((e) => e.message).join('; ')}`);
+
+const doisContratos = buildSubmitPayload(contratoMulti, { [chave]: ['ctr_1', '', ' ctr_2 '] });
+assert.equal(doisContratos.valid, true);
+assert.equal(doisContratos.vinculos.length, 2, 'linha vazia não vira vínculo');
+const subs = doisContratos.request.body.compositeRequest;
+assert.deepEqual(
+  subs.map((s) => s.referenceId),
+  ['refPai', 'casoGerado', 'vinculo1', 'vinculo2']
+);
+assert.equal(subs[2].body.Case__c, '@{casoGerado.records[0].Id}');
+assert.equal(subs[3].body.RelatedContractExternalId__c, 'ctr_2');
+assert.equal(subs[0].body[chave], undefined, 'nada da referência múltipla no registro do formulário');
+line('  dois contratos  → composite:');
+line(JSON.stringify(doisContratos.request, null, 2).split('\n').map((l) => '    ' + l).join('\n'));
 
 line();
 rule();

@@ -7,6 +7,7 @@
  */
 
 import { config, assertAuthConfigured } from './config.js';
+import { subrequisicoesDeVinculo } from './contract.js';
 
 let cached = null; // { accessToken, instanceUrl, mode }
 
@@ -171,6 +172,7 @@ export async function createRecordComposite(objectApiName, payload) {
     ? payload.request.body.compositeRequest[0].body
     : (payload?.request?.body ?? payload);
   const itens = payload?.listas ?? [];
+  const vinculos = payload?.vinculos ?? [];
 
   const CAMPOS_LEITURA = {
     Case: 'Id,CaseNumber,Status,CreatedDate',
@@ -193,6 +195,9 @@ export async function createRecordComposite(objectApiName, payload) {
       referenceId: `item${i + 1}`,
       body: { ...item.record, [item.relationshipField]: `@{${REF_PAI}.id}` },
     })),
+    // Contratos da referência múltipla: o Caso gerado e um CaseContract__c por
+    // escolha. O mesmo builder do payload mostrado na tela.
+    ...subrequisicoesDeVinculo(objectApiName, vinculos, REF_PAI, version),
     {
       method: 'GET',
       url: `/services/data/${version}/sobjects/${objectApiName}/@{${REF_PAI}.id}?fields=${campos}`,
@@ -648,6 +653,50 @@ export async function schemaEFormulario(objectApiName, { specSoql, recordTypeDev
     palpiteRecusado: Boolean(recordTypeDevName) && !palpite,
     /** Subrequisições que o batch truncou e precisaram ser refeitas sozinhas. */
     refeitos,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Seletor de referência: registros que o usuário pode escolher
+// ---------------------------------------------------------------------------
+
+/**
+ * Objetos que o seletor pode listar, com o campo que nomeia o registro na
+ * tela. Allowlist de propósito: objeto e campo vêm do cliente e vão para dentro
+ * da SOQL — sem isto o endpoint listaria qualquer objeto que a integração vê.
+ */
+const REFERENCIAVEIS = Object.freeze({
+  Contract: 'ContractNumber',
+  Property__c: 'Name',
+});
+
+/**
+ * Registros de `objeto` com o id externo preenchido, para sugerir no seletor.
+ * `termo` filtra pelo id externo ou pelo nome; vazio traz os mais recentes.
+ *
+ * Na POC não há cliente logado, então a lista é a da org inteira. No app, o
+ * seletor lista só os contratos de quem está preenchendo.
+ */
+export async function buscarReferencias({ objeto, campoExterno, termo = '' }) {
+  const nome = REFERENCIAVEIS[objeto];
+  if (!nome) throw new Error(`Objeto fora do seletor: ${objeto}`);
+  if (!NOME_API.test(String(campoExterno ?? ''))) throw new Error(`Campo inválido: ${campoExterno}`);
+
+  // Curinga do LIKE sai do termo: quem digita "%" não quer "qualquer coisa".
+  const limpo = String(termo ?? '').replace(/[%_]/g, '').trim().slice(0, 80);
+  const filtro = limpo
+    ? ` AND (${campoExterno} LIKE ${literal(`%${limpo}%`)} OR ${nome} LIKE ${literal(`%${limpo}%`)})`
+    : '';
+  const q = `SELECT Id, ${campoExterno}, ${nome} FROM ${objeto} WHERE ${campoExterno} != null${filtro} ORDER BY LastModifiedDate DESC LIMIT 50`;
+
+  const r = await soql(q);
+  return {
+    soql: q,
+    records: (r.records ?? []).map((x) => ({
+      id: x.Id,
+      externalId: x[campoExterno],
+      name: x[nome] ?? null,
+    })),
   };
 }
 
