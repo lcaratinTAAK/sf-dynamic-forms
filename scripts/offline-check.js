@@ -154,6 +154,7 @@ const linhasMulti = [
     TargetRecordTypeDevName__c: 'BankDataChange',
     VersionFieldApiName__c: 'FormVersion__c',
     Version__c: 1,
+    VersionKey__c: 'teste_multi#1',
   },
   {
     Id: MULTI_ID,

@@ -111,10 +111,14 @@ export function backendFieldsFromForm(form) {
   }
 
   // Sem par de valor, ao contrário de Tipo/Prioridade: o valor é sempre a
-  // versão ATIVA do próprio formulário (FormDefinition__c.Version__c da raiz
-  // lida), nunca uma escolha do configurador.
-  if (form.versionFieldApiName && form.version != null) {
-    out[form.versionFieldApiName] = String(form.version);
+  // versão ATIVA do próprio formulário, nunca uma escolha do configurador.
+  //
+  // A chave (`VersionKey__c`, ex. `owner_bank_data_change#18`), e não o
+  // número (`Version__c`): é por ela que a trigger do envio acha o formulário
+  // e decide se cria o caso auxiliar. Com o número, a trigger não acha nada,
+  // o Caso não nasce e os vínculos de contrato quebram com PROCESSING_HALTED.
+  if (form.versionFieldApiName && form.versionKey) {
+    out[form.versionFieldApiName] = form.versionKey;
   }
   return out;
 }

@@ -328,7 +328,7 @@ export function specToContract(
     priorityFieldApiName: raiz.PriorityFieldApiName__c,
     priorityValue: raiz.PriorityValue__c,
     versionFieldApiName: raiz.VersionFieldApiName__c,
-    version: raiz.Version__c,
+    versionKey: raiz.VersionKey__c,
   });
 
   if (!rt) {
