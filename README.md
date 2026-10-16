@@ -119,9 +119,14 @@ está descrito em `server/contract.js`.
 }
 ```
 
-Uma seção com `repeating: true` carrega `childObject` e
-`childRelationshipField`: cada item vira um **registro filho**, e o envio deixa
-de ser um POST e passa a ser um `composite` com `@{refPai.id}`.
+Uma seção com `repeating: true` é uma lista: cada item vira um **registro de
+`childObject`**, no Record Type `childRecordTypeId`, e o envio deixa de ser um
+POST e passa a ser um `composite`. Depois do registro, o composite lê o Caso
+que o trigger gerou (`casoGerado`), e cada item leva o Id do Caso em
+`caseField` e o Id da lista em `listField` — com ele o Salesforce aplica o
+Record Type e os valores padrão daquela lista. As regras dos campos de um item
+leem as respostas do item, ou as do formulário quando a condição aponta o
+objeto do formulário (`object`, de `ConditionObjectApiName__c`).
 
 ### O avaliador de regras
 

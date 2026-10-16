@@ -36,8 +36,15 @@
  *
  * Visibility = {
  *   logic: 'AND' | 'OR',
- *   conditions: [{ field, operator, value }]
+ *   conditions: [{ field, operator, value, object }]
+ *                                          // object: de ConditionObjectApiName__c — numa lista,
+ *                                          // o objeto do formulário faz a condição ler as respostas de fora
  * }
+ *
+ * Seção com `repeating: true` (lista repetível) carrega também:
+ *   childObject, childRecordTypeDevName, childRecordTypeId,
+ *   caseField, listField, childRelationshipField, submissionField,
+ *   itemLabel, addButtonText, minItems, maxItems
  */
 
 export const OPERATORS = Object.freeze({
@@ -317,7 +324,10 @@ export function avaliarGrupo(grupo, values, seVazio = false) {
   const { logic = 'ALL', expression = null, conditions = [] } = grupo;
   if (conditions.length === 0) return seVazio;
 
-  const resultados = conditions.map((c) => evaluateCondition(c, values[c.field], values));
+  const resultados = conditions.map((c) => {
+    const escopo = escopoDaCondicao(c, values);
+    return evaluateCondition(c, escopo[c.field], escopo);
+  });
 
   // ANY/OR e ALL/AND são o mesmo conceito com nomes diferentes: o vocabulário
   // da FlexiPage e o que as fontes anteriores já produziam.
@@ -325,6 +335,31 @@ export function avaliarGrupo(grupo, values, seVazio = false) {
   if (modo === 'CUSTOM') return avaliarExpressao(expression, resultados);
   if (modo === 'ANY' || modo === 'OR') return resultados.some(Boolean);
   return resultados.every(Boolean);
+}
+
+/**
+ * Os valores que uma condição lê.
+ *
+ * Dentro de um item de lista, `values` são as respostas do ITEM, e as do
+ * formulário viajam junto em `__outer`, marcadas com o objeto do formulário
+ * em `__outerObject` (ver `escopoDoItem`). Uma condição que nomeia o objeto do
+ * formulário (`object`, de `ConditionObjectApiName__c`) lê as de fora — então
+ * um `Type__c` que existe nos dois objetos nunca é lido do lado errado. Sem
+ * `object`, vale o escopo do componente, que é o comportamento de antes.
+ */
+function escopoDaCondicao(condicao, values) {
+  return condicao.object && values.__outerObject && condicao.object === values.__outerObject
+    ? (values.__outer ?? {})
+    : values;
+}
+
+/**
+ * O que as regras de um componente de lista enxergam: as respostas do item por
+ * cima das do formulário, e as do formulário sozinhas em `__outer`, para a
+ * condição que aponta o objeto do formulário.
+ */
+export function escopoDoItem(objetoDoFormulario, values, item) {
+  return { ...values, ...item, __outer: values, __outerObject: objetoDoFormulario };
 }
 
 /**
@@ -348,6 +383,8 @@ export function isRequired(field, values) {
 export function validar(contract, values) {
   const erros = [];
   for (const secao of contract.sections || []) {
+    // Campo de lista é validado por item, no escopo do item (`montarItensDeLista`).
+    if (secao.repeating) continue;
     if (!isVisible(secao, values)) continue;
     for (const item of secao.fields || []) {
       if (!isVisible(item, values)) continue;
@@ -474,6 +511,7 @@ export function resolverToken(token, agora = new Date()) {
  */
 function resolverEsperado(condition, values, agora) {
   const origem = condition.valueSource || 'LITERAL';
+  // `values` já é o escopo da condição: o outro campo é lido no mesmo objeto.
   if (origem === 'FIELD') return values[condition.value];
   if (origem === 'TOKEN') return resolverToken(condition.value, agora);
   return condition.value;
@@ -603,18 +641,20 @@ export function buildSubmitPayload(contract, values) {
   }
 
   const invalid = validar(contract, values);
-  const { itens, problemasDeLista } = montarItensDeLista(listas, values);
+  const { itens, problemasDeLista, invalidosDeLista } = montarItensDeLista(listas, values, contract.object);
   missing.push(...problemasDeLista);
+  invalid.push(...invalidosDeLista);
 
   const { vinculos, problemasDeVinculo } = montarVinculos(secoesSimples, values);
   missing.push(...problemasDeVinculo);
 
-  const invalid2 = invalid;
+  const composto = itens.length || vinculos.length;
+  const subrequests = composto ? compositeDoEnvio(contract.object, record, itens, vinculos, 'vXX.X') : [];
 
   return {
-    valid: missing.length === 0 && invalid2.length === 0,
+    valid: missing.length === 0 && invalid.length === 0,
     missing,
-    invalid: invalid2,
+    invalid,
     listas: itens,
     vinculos,
     hiddenFieldsIgnored: todosOsCampos
@@ -622,8 +662,15 @@ export function buildSubmitPayload(contract, values) {
       .map((f) => f.apiName),
     injectedFields: backendFields,
     injectedOverwroteForm: overwritten,
-    request: itens.length || vinculos.length
-      ? montarComposite(contract, record, itens, vinculos)
+    // O composite em palavras, na ordem: o que cada subrequisição cria e de onde
+    // vem cada vínculo. O inspetor mostra isto acima do JSON.
+    etapas: composto ? descreverEtapas(subrequests, itens, vinculos) : [],
+    request: composto
+      ? {
+          method: 'POST',
+          url: '/services/data/vXX.X/composite',
+          body: { allOrNone: true, compositeRequest: subrequests },
+        }
       : {
           method: 'POST',
           url: `/services/data/vXX.X/sobjects/${contract.object}`,
@@ -638,51 +685,71 @@ export function buildSubmitPayload(contract, values) {
  * `values.__listas[secaoId]` é um array de objetos, um por item. Item vazio é
  * descartado em silêncio: o cliente clicou em "adicionar" e desistiu, e isso
  * não é erro.
+ *
+ * Cada item é avaliado no próprio escopo (`escopoDoItem`): visibilidade,
+ * obrigatoriedade e validação dos campos dele leem as respostas do item, ou as
+ * do formulário quando a regra aponta o objeto do formulário.
  */
-function montarItensDeLista(listas, values) {
+function montarItensDeLista(listas, values, objetoDoFormulario) {
   const itens = [];
   const problemasDeLista = [];
+  const invalidosDeLista = [];
 
   for (const lista of listas) {
     const brutos = (values.__listas && values.__listas[lista.id]) || [];
     const campos = lista.fields.filter((f) => isFieldLike(f));
+    let digitados = 0;
 
-    const preenchidos = brutos
-      .map((item) => {
-        const registro = {};
-        for (const f of campos) {
-          if (f.readOnly) continue;
-          const v = f.hidden ? (f.defaultValue ?? item[f.apiName]) : (item[f.apiName] ?? f.defaultValue);
-          if (v !== undefined && v !== null && v !== '') registro[f.apiName] = v;
+    brutos.forEach((item, i) => {
+      const escopo = escopoDoItem(objetoDoFormulario, values, item);
+      const visiveis = campos.filter((f) => isVisible(f, escopo));
+
+      const registro = {};
+      for (const f of visiveis) {
+        if (f.readOnly) continue;
+        const v = f.hidden ? (f.defaultValue ?? item[f.apiName]) : (item[f.apiName] ?? f.defaultValue);
+        if (v !== undefined && v !== null && v !== '') registro[f.apiName] = v;
+      }
+
+      // Campo oculto com valor padrão preenche sozinho — um item que só tem esses
+      // não foi preenchido por ninguém e não deve virar registro.
+      const foiPreenchido = visiveis.some((f) => !f.hidden && registro[f.apiName] !== undefined);
+      if (!foiPreenchido) return;
+      digitados += 1;
+
+      const rotulo = `${lista.itemLabel ?? 'Item'} ${i + 1}`;
+      for (const f of visiveis) {
+        if (f.hidden || f.readOnly) continue;
+        const vazio = item[f.apiName] === undefined || item[f.apiName] === '';
+        if (vazio && isRequired(f, escopo)) problemasDeLista.push(`${lista.label} · ${rotulo}: ${f.label}`);
+        if (f.validation && avaliarGrupo(f.validation, escopo, false)) {
+          invalidosDeLista.push({ apiName: `${lista.id}[${i}].${f.apiName}`, message: `${rotulo}: ${f.validation.message}` });
         }
-        return registro;
-      })
-      .filter((r) => Object.keys(r).length > 0);
+      }
 
-    // Campo oculto com valor padrão preenche sozinho — um item que só tem esses
-    // não foi preenchido por ninguém e não deve virar registro.
-    const digitados = preenchidos.filter((r) =>
-      campos.some((f) => !f.hidden && r[f.apiName] !== undefined)
-    );
-
-    if (lista.minItems && digitados.length < lista.minItems) {
-      problemasDeLista.push(`${lista.label} (${digitados.length}/${lista.minItems} itens)`);
-    }
-    if (lista.maxItems && digitados.length > lista.maxItems) {
-      problemasDeLista.push(`${lista.label} (${digitados.length} itens, máximo ${lista.maxItems})`);
-    }
-
-    for (const registro of digitados) {
       itens.push({
         secaoId: lista.id,
+        listaLabel: lista.label,
         object: lista.childObject,
-        relationshipField: lista.childRelationshipField,
+        recordTypeId: lista.childRecordTypeId ?? null,
+        recordTypeDevName: lista.childRecordTypeDevName ?? null,
+        caseField: lista.caseField ?? null,
+        listField: lista.listField ?? null,
+        relationshipField: lista.childRelationshipField ?? null,
+        submissionField: lista.submissionField ?? null,
         record: registro,
       });
+    });
+
+    if (lista.minItems && digitados < lista.minItems) {
+      problemasDeLista.push(`${lista.label} (${digitados}/${lista.minItems} itens)`);
+    }
+    if (lista.maxItems && digitados > lista.maxItems) {
+      problemasDeLista.push(`${lista.label} (${digitados} itens, máximo ${lista.maxItems})`);
     }
   }
 
-  return { itens, problemasDeLista };
+  return { itens, problemasDeLista, invalidosDeLista };
 }
 
 /**
@@ -718,40 +785,76 @@ function montarVinculos(secoesSimples, values) {
   return { vinculos, problemasDeVinculo };
 }
 
+/** referenceId da subrequisição que cria o registro do formulário. */
+export const REF_PAI = 'refPai';
+
 /** referenceId da consulta que acha o Caso gerado pelo envio. */
 export const REF_CASO = 'casoGerado';
 
+/** O lookup do Caso que aponta para o envio, quando o contrato não disser outro. */
+const CAMPO_DO_ENVIO_PADRAO = 'RelatedCaseFormSubmission__c';
+
 /**
- * As subrequisições que ligam os contratos escolhidos ao Caso.
+ * As subrequisições do envio, na ordem em que o Salesforce as executa.
+ *
+ *   1. o registro do formulário                         `refPai`
+ *   2. a leitura do Caso que o trigger dele criou       `casoGerado`  (se precisar)
+ *   3. um POST por item de lista                        `item1..N`
+ *   4. um POST por contrato da referência múltipla      `vinculo1..N`
  *
  * O registro do formulário não é o Caso: o Caso nasce no trigger after insert
  * do envio, na MESMA transação, com o Id do envio em `submissionField`
- * (Case.RelatedCaseFormSubmission__c). Então uma consulta
- * logo depois do POST já o encontra, e cada vínculo usa
- * `@{casoGerado.records[0].Id}`. Formulário que cria o próprio Case dispensa
- * a consulta.
+ * (Case.RelatedCaseFormSubmission__c). Então uma consulta logo depois do POST já
+ * o encontra, e itens e vínculos usam `@{casoGerado.records[0].Id}`. Formulário
+ * que cria o próprio Case dispensa a consulta.
  *
- * Uma subrequisição por contrato, e não um `composite/sobjects` com a lista:
- * a coleção reporta a falha de cada registro DENTRO de uma resposta 200, e o
+ * Cada item leva o que a definição da lista manda: o `RecordTypeId` dos itens,
+ * o Id do Caso no campo `caseField` (o trigger do item preenche o envio a partir
+ * dele) e o Id da lista no campo `listField` (o trigger aplica o Record Type e os
+ * valores padrão daquela lista). Lista sem `caseField` cai no modelo antigo: o
+ * item aponta direto para o registro, por `relationshipField`.
+ *
+ * Uma subrequisição por registro, e não um `composite/sobjects` com a lista: a
+ * coleção reporta a falha de cada registro DENTRO de uma resposta 200, e o
  * `allOrNone` de fora decide pelo status da subrequisição. Com um POST por
  * registro, a falha é um 400 e a transação inteira volta, envio incluído.
  *
  * A referência dentro da URL vai crua, sem encode — encodada, a consulta
  * devolve 200 com zero registros (ver `schemaEFormulario`).
  */
-export function subrequisicoesDeVinculo(objetoPai, vinculos, refPai, versao) {
-  if (!vinculos?.length) return [];
-  const subrequests = [];
-  let idDoCaso = `@{${refPai}.id}`;
-  if (objetoPai !== 'Case') {
-    const campo = vinculos[0].submissionField;
+export function compositeDoEnvio(objetoPai, record, itens = [], vinculos = [], versao = 'vXX.X') {
+  const subrequests = [
+    { referenceId: REF_PAI, method: 'POST', url: `/services/data/${versao}/sobjects/${objetoPai}`, body: record },
+  ];
+
+  const precisaDoCaso = itens.some((i) => i.caseField) || vinculos.length > 0;
+  let idDoCaso = `@{${REF_PAI}.id}`;
+  if (precisaDoCaso && objetoPai !== 'Case') {
+    const campo =
+      itens.find((i) => i.caseField)?.submissionField ?? vinculos[0]?.submissionField ?? CAMPO_DO_ENVIO_PADRAO;
     subrequests.push({
       referenceId: REF_CASO,
       method: 'GET',
-      url: `/services/data/${versao}/query?q=SELECT+Id+FROM+Case+WHERE+${campo}='@{${refPai}.id}'+LIMIT+1`,
+      url: `/services/data/${versao}/query?q=SELECT+Id,CaseNumber+FROM+Case+WHERE+${campo}='@{${REF_PAI}.id}'+LIMIT+1`,
     });
     idDoCaso = `@{${REF_CASO}.records[0].Id}`;
   }
+
+  itens.forEach((item, i) => {
+    const body = {};
+    if (item.recordTypeId) body.RecordTypeId = item.recordTypeId;
+    Object.assign(body, item.record);
+    if (item.listField) body[item.listField] = item.secaoId;
+    if (item.caseField) body[item.caseField] = idDoCaso;
+    else if (item.relationshipField) body[item.relationshipField] = `@{${REF_PAI}.id}`;
+    subrequests.push({
+      referenceId: `item${i + 1}`,
+      method: 'POST',
+      url: `/services/data/${versao}/sobjects/${item.object}`,
+      body,
+    });
+  });
+
   vinculos.forEach((v, i) => {
     subrequests.push({
       referenceId: `vinculo${i + 1}`,
@@ -760,42 +863,43 @@ export function subrequisicoesDeVinculo(objetoPai, vinculos, refPai, versao) {
       body: { ...v.record, [v.caseField]: idDoCaso },
     });
   });
+
   return subrequests;
 }
 
 /**
- * O Caso ainda não existe quando o cliente preenche, então os itens não têm o
- * id do pai para gravar. O composite resolve isso dentro da própria transação:
- * o `referenceId` da primeira subrequisição vira `@{ref.id}` nas seguintes.
- *
- * `allOrNone` porque um Caso sem os membros que o justificam é pior que erro
- * nenhum — a pessoa reenviaria e criaria um Caso duplicado.
+ * O composite em palavras: uma linha por subrequisição, com o que ela cria e de
+ * onde vem cada vínculo. É o que o inspetor mostra acima do JSON, para quem
+ * monta o envio no canal conferir a ordem e os campos sem decifrar o corpo.
  */
-function montarComposite(contract, record, itens, vinculos = []) {
-  const REF_PAI = 'refPai';
-  const subrequests = [
-    {
-      referenceId: REF_PAI,
-      method: 'POST',
-      url: `/services/data/vXX.X/sobjects/${contract.object}`,
-      body: record,
-    },
-  ];
+function descreverEtapas(subrequests, itens, vinculos) {
+  const porLista = {};
+  return subrequests.map((s) => {
+    const alvo = s.url.split('/sobjects/')[1] ?? (s.method === 'GET' ? 'Case' : '');
+    const base = { referenceId: s.referenceId, method: s.method, alvo };
 
-  itens.forEach((item, i) => {
-    subrequests.push({
-      referenceId: `item${i + 1}`,
-      method: 'POST',
-      url: `/services/data/vXX.X/sobjects/${item.object}`,
-      body: { ...item.record, [item.relationshipField]: `@{${REF_PAI}.id}` },
-    });
+    if (s.referenceId === REF_PAI) {
+      return { ...base, nota: `o registro do formulário · ${Object.keys(s.body).length - 1} campo(s)` };
+    }
+    if (s.referenceId === REF_CASO) {
+      return { ...base, nota: 'o Caso que o trigger do envio criou; itens e contratos se ligam a ele' };
+    }
+    const item = /^item(\d+)$/.exec(s.referenceId);
+    if (item) {
+      const it = itens[Number(item[1]) - 1];
+      porLista[it.secaoId] = (porLista[it.secaoId] ?? 0) + 1;
+      const partes = [`${it.listaLabel}, item ${porLista[it.secaoId]}`];
+      if (it.recordTypeId) partes.push(`RecordTypeId = ${it.recordTypeDevName ?? it.recordTypeId}`);
+      if (it.caseField) partes.push(`${it.caseField} = id do Caso`);
+      else if (it.relationshipField) partes.push(`${it.relationshipField} = id do registro`);
+      if (it.listField) partes.push(`${it.listField} = id da lista`);
+      return { ...base, nota: partes.join(' · ') };
+    }
+    const vinc = /^vinculo(\d+)$/.exec(s.referenceId);
+    if (vinc) {
+      const v = vinculos[Number(vinc[1]) - 1];
+      return { ...base, nota: `contrato ${Object.values(v.record)[0]} ligado ao Caso` };
+    }
+    return { ...base, nota: '' };
   });
-
-  subrequests.push(...subrequisicoesDeVinculo(contract.object, vinculos, REF_PAI, 'vXX.X'));
-
-  return {
-    method: 'POST',
-    url: '/services/data/vXX.X/composite',
-    body: { allOrNone: true, compositeRequest: subrequests },
-  };
 }

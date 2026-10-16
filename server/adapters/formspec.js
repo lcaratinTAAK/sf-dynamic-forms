@@ -37,7 +37,7 @@
  * mexer no campo.
  */
 
-import { soql, getPicklistValues, getObjectInfo, schemaEFormulario } from '../salesforce.js';
+import { soql, getPicklistValues, getObjectInfo, schemaEFormulario, schemaDasListas } from '../salesforce.js';
 import {
   emptyContract,
   makeField,
@@ -74,20 +74,32 @@ const CAMPOS = `Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c,
   FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c,
   IsRequired__c, IsReadOnly__c,
   DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c,
-  ConditionFieldApiName__c, Operator__c, Value__c, Effect__c,
+  ConditionFieldApiName__c, ConditionObjectApiName__c, Operator__c, Value__c, Effect__c,
   FilterLogicType__c, FilterLogic__c,
   Body__c, ItemLabel__c, AddButtonText__c,
   Message__c, RequiredLogicType__c, ValidationLogicType__c, ValueSource__c,
   ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c,
+  ChildRecordTypeDevName__c, ChildCaseFieldApiName__c, ChildListFieldApiName__c,
+  MappingType__c, TargetFieldApiName__c,
   ReferenceType__c, ReferenceObjectApiName__c, ExternalIdFieldApiName__c`.replace(/\s+/g, ' ');
 
-/** Catálogo: só as linhas raiz. Uma query. */
+/** O Record Type implícito, para pedir picklists de um objeto sem Record Type na lista. */
+const MASTER_RECORD_TYPE_ID = '012000000000000AAA';
+
+/**
+ * Catálogo: só as linhas raiz. Uma query.
+ *
+ * Além das versões ativas, traz os RASCUNHOS: esta tela é onde se testa um
+ * formulário antes de ativá-lo. Um canal de verdade lista só `IsActive__c = true`
+ * — o seletor marca o status de cada versão para não confundir.
+ */
 export const queryCatalogo = () =>
   `SELECT Id, Name, PublicLabel__c, Description__c, ObjectApiName__c, TargetRecordTypeDevName__c, ` +
   `FormKey__c, Version__c, Status__c, VersionKey__c, ` +
   `TypeFieldApiName__c, TypeValue__c, PriorityFieldApiName__c, PriorityValue__c, ` +
   `VersionFieldApiName__c, Channel__c ` +
-  `FROM ${OBJ} WHERE RecordType.DeveloperName = 'Form' AND IsActive__c = true ORDER BY Name`;
+  `FROM ${OBJ} WHERE RecordType.DeveloperName = 'Form' AND (IsActive__c = true OR Status__c = 'DRAFT') ` +
+  `ORDER BY Name, Version__c`;
 
 /**
  * A especificação inteira.
@@ -100,9 +112,12 @@ export const queryCatalogo = () =>
 /** Multi-select picklist vem como 'A;B;C'. */
 const canais = (valor) => (valor ? String(valor).split(';').filter(Boolean) : []);
 
+// A raiz entra mesmo inativa: um rascunho tem a raiz com IsActive__c = false, e
+// sem ela a especificação não monta. Nas outras linhas o filtro continua: linha
+// desativada some da leitura.
 export const querySpec = (formId) =>
   `SELECT ${CAMPOS} FROM ${OBJ} ` +
-  `WHERE (Id = '${formId}' OR Form__c = '${formId}') AND IsActive__c = true ` +
+  `WHERE (Id = '${formId}' OR Form__c = '${formId}') AND (IsActive__c = true OR Id = '${formId}') ` +
   `ORDER BY Sort__c NULLS FIRST, Name`;
 
 /**
@@ -280,6 +295,12 @@ export async function buildContract({ formId, objectApiName, recordTypeDevName =
     picklists = await getPicklistValues(objeto, rt.Id);
   }
 
+  // 4. As listas repetíveis. Os campos delas são do objeto dos ITENS, então o
+  //    schema e as picklists vêm de lá, pelo Record Type que a lista declara.
+  //    Uma viagem para o schema e os Record Types de todos os objetos de lista,
+  //    mais uma ida à UI API por par (objeto, Record Type).
+  const listas = await contextoDasListas(linhas, { track, avisos });
+
   const contract = specToContract(linhas, {
     formId,
     objectApiName: objeto,
@@ -288,6 +309,7 @@ export async function buildContract({ formId, objectApiName, recordTypeDevName =
     picklists,
     rt,
     rtEhFallback,
+    listas,
   });
   contract.diagnostics.calls = calls;
   contract.diagnostics.warnings.unshift(...avisos);
@@ -295,11 +317,75 @@ export async function buildContract({ formId, objectApiName, recordTypeDevName =
 }
 
 /**
+ * Schema, Record Types e picklists dos objetos das listas repetíveis.
+ *
+ * Devolve `{ [objeto]: { indiceDeCampos, controladorDe, recordTypes, picklists } }`,
+ * com `recordTypes` e `picklists` por DeveloperName. Sem lista no formulário,
+ * não faz viagem nenhuma.
+ */
+async function contextoDasListas(linhas, { track, avisos }) {
+  const listas = linhas.filter(
+    (r) => r.RecordType?.DeveloperName === 'RepeatingSection' && r.ChildObjectApiName__c
+  );
+  if (listas.length === 0) return {};
+
+  const objetos = [...new Set(listas.map((l) => l.ChildObjectApiName__c))];
+  track(
+    'Metadado dos campos das listas + Record Types dos itens',
+    `/composite → EntityParticle + FieldDefinition (${objetos.join(', ')}) + RecordType`,
+    { replayId: `listas:${objetos.join(',')}`, method: 'POST' }
+  );
+  const lote = await schemaDasListas(objetos);
+  for (const nome of lote?.refeitos ?? []) {
+    track(`Refazendo "${nome}" — veio cortado do lote`, '/query (fora do composite)');
+  }
+
+  const contexto = {};
+  for (const o of objetos) {
+    const doObjeto = lote?.porObjeto?.[o] ?? { campos: [], controladorDe: {} };
+    const recordTypes = {};
+    for (const r of lote?.recordTypes ?? []) if (r.SobjectType === o) recordTypes[r.DeveloperName] = r;
+    contexto[o] = {
+      indiceDeCampos: indexarCampos(doObjeto.campos),
+      controladorDe: doObjeto.controladorDe,
+      recordTypes,
+      picklists: {},
+    };
+  }
+
+  // Uma ida por par (objeto, Record Type): duas listas no mesmo objeto e Record
+  // Type, como "quem sai" e "quem entra", dividem a mesma resposta.
+  const pares = new Map();
+  for (const l of listas) {
+    const o = l.ChildObjectApiName__c;
+    const devName = l.ChildRecordTypeDevName__c || null;
+    const rtDoItem = devName ? contexto[o].recordTypes[devName] : null;
+    if (devName && !rtDoItem) {
+      avisos.push(
+        `Lista "${l.Name}": o Record Type "${devName}" não existe ou está inativo em ${o}. ` +
+          'Os itens vão sem RecordTypeId, e as picklists usam os valores do Record Type padrão.'
+      );
+    }
+    const chave = devName && rtDoItem ? devName : '';
+    if (!pares.has(`${o}|${chave}`)) pares.set(`${o}|${chave}`, { o, chave, id: rtDoItem?.Id ?? MASTER_RECORD_TYPE_ID });
+  }
+
+  for (const { o, chave, id } of pares.values()) {
+    track(
+      `Valores de picklist dos itens (${o}${chave ? ` · ${chave}` : ''})`,
+      `/ui-api/object-info/${o}/picklist-values/${id}`
+    );
+    contexto[o].picklists[chave] = await getPicklistValues(o, id).catch(() => null);
+  }
+  return contexto;
+}
+
+/**
  * Tradução pura: linhas de FormDefinition__c -> contrato. Sem I/O, testável offline.
  */
 export function specToContract(
   linhas,
-  { formId, objectApiName, indiceDeCampos, controladorDe = {}, picklists, rt, rtEhFallback = false }
+  { formId, objectApiName, indiceDeCampos, controladorDe = {}, picklists, rt, rtEhFallback = false, listas = {} }
 ) {
   const contract = emptyContract('FORM_SPEC', objectApiName);
   const raiz = linhas.find((r) => r.Id === formId);
@@ -360,6 +446,9 @@ export function specToContract(
   const condicoesDe = (regras) =>
     regras.map((r) => ({
       field: r.ConditionFieldApiName__c,
+      // Dentro de uma lista, diz se o valor vem do item ou do formulário em
+      // volta. Vazio: o escopo do próprio componente.
+      object: r.ConditionObjectApiName__c ?? null,
       operator: normalizeOperator(r.Operator__c),
       value: r.Value__c,
       valueSource: r.ValueSource__c || 'LITERAL',
@@ -430,15 +519,21 @@ export function specToContract(
   // --- filhos: quem tem Parent__c vazio é filho direto da raiz ---
   const filhosDe = (paiId) =>
     linhas
-      // Regras não são componentes visuais: ficam fora da árvore.
-      .filter((r) => r.Id !== formId && tipo(r) !== 'Rule')
+      // Regras e de-para não são componentes visuais: ficam fora da árvore. Os
+      // valores padrão de lista (FieldMapping LISTPREFILL) são filhos da lista,
+      // e o Salesforce os aplica sozinho quando o item chega.
+      .filter((r) => r.Id !== formId && tipo(r) !== 'Rule' && tipo(r) !== 'FieldMapping')
       .filter((r) => (paiId === formId ? !r.Parent__c : r.Parent__c === paiId))
       .sort((a, b) => (a.Sort__c ?? 0) - (b.Sort__c ?? 0));
 
   // --- conversão de um componente em item do contrato ---
   const anexos = [];
 
-  const paraItem = (r) => {
+  // O schema que um componente usa: o do formulário, ou o do objeto da lista
+  // quando ele está dentro de uma (ver `contextoDasListas`).
+  const contextoDoFormulario = { indiceDeCampos, controladorDe, picklists };
+
+  const paraItem = (r, ctx = contextoDoFormulario) => {
     const t = tipo(r);
 
     if (t === 'Content') {
@@ -503,8 +598,8 @@ export function specToContract(
         readOnly: r.IsReadOnly__c === true,
         visibility: visibilidadeDe(r),
       });
-      campo = applyEntityParticle(campo, indiceDeCampos, controladorDe);
-      if (picklists) campo = applyPicklistValues(campo, picklists);
+      campo = applyEntityParticle(campo, ctx.indiceDeCampos, ctx.controladorDe);
+      if (ctx.picklists) campo = applyPicklistValues(campo, ctx.picklists);
 
       // O que a especificação diz vence o schema, porque é escolha de
       // formulário; o resto continua vindo do object-info.
@@ -552,12 +647,40 @@ export function specToContract(
         );
         continue;
       }
-      if (!filho.ChildRelationshipField__c) {
+      // O item se liga ao Caso (`ChildCaseFieldApiName__c`, o modelo atual) ou,
+      // no modelo antigo, direto ao registro (`ChildRelationshipField__c`).
+      // Sem nenhum dos dois não há como ligar o item a nada.
+      if (!filho.ChildCaseFieldApiName__c && !filho.ChildRelationshipField__c) {
         contract.diagnostics.warnings.push(
-          `Lista "${filho.Name}" está sem o campo de vínculo com o pai; ignorada.`
+          `Lista "${filho.Name}" está sem campo de vínculo (nem do Caso, nem do registro); ignorada.`
         );
         continue;
       }
+
+      const ctxDaLista = listas[filho.ChildObjectApiName__c];
+      const devName = filho.ChildRecordTypeDevName__c || null;
+      const rtDoItem = devName ? ctxDaLista?.recordTypes?.[devName] ?? null : null;
+      const contextoDosItens = ctxDaLista
+        ? {
+            indiceDeCampos: ctxDaLista.indiceDeCampos,
+            controladorDe: ctxDaLista.controladorDe,
+            picklists: ctxDaLista.picklists?.[rtDoItem ? devName : ''] ?? null,
+          }
+        : // Sem o contexto da lista (tradução offline sem o schema do item), os
+          // campos saem só com o que a especificação declara.
+          { indiceDeCampos: {}, controladorDe: {}, picklists: null };
+
+      const itensDaLista = filhosDe(filho.Id)
+        .filter((r) => {
+          if (tipo(r) !== 'MultiReference') return true;
+          contract.diagnostics.warnings.push(
+            `"${r.Name}" é referência múltipla dentro da lista "${filho.Name}", o que não é suportado; ignorada.`
+          );
+          return false;
+        })
+        .map((r) => paraItem(r, contextoDosItens))
+        .filter(Boolean);
+
       secoes.push({
         id: filho.Id,
         label: filho.Name,
@@ -568,14 +691,25 @@ export function specToContract(
         minItems: filho.MinItems__c ?? null,
         maxItems: filho.MaxItems__c ?? null,
         childObject: filho.ChildObjectApiName__c,
-        childRelationshipField: filho.ChildRelationshipField__c,
-        fields: filhosDe(filho.Id).map(paraItem).filter(Boolean),
+        childRecordTypeDevName: devName,
+        childRecordTypeId: rtDoItem?.Id ?? null,
+        caseField: filho.ChildCaseFieldApiName__c ?? null,
+        listField: filho.ChildListFieldApiName__c ?? null,
+        childRelationshipField: filho.ChildRelationshipField__c ?? null,
+        submissionField: VINCULO_CONTRATO.submissionField,
+        // Valores que o Salesforce aplica sozinho em cada item que chega com o
+        // Id da lista — só para exibição; nada disso vai no envio.
+        listDefaults: linhas
+          .filter((r) => tipo(r) === 'FieldMapping' && r.MappingType__c === 'LISTPREFILL' && r.Parent__c === filho.Id)
+          .map((r) => ({ field: r.TargetFieldApiName__c, value: r.DefaultValue__c })),
+        fields: itensDaLista,
       });
       continue;
     }
 
     if (t === 'Section') {
-      const itens = filhosDe(filho.Id).map(paraItem).filter(Boolean);
+      // Lambda, e não `map(paraItem)`: o índice do map cairia no lugar do contexto.
+      const itens = filhosDe(filho.Id).map((r) => paraItem(r)).filter(Boolean);
       secoes.push({
         id: filho.Id,
         label: filho.Name,

@@ -20,6 +20,7 @@ import {
   sfGet,
   SalesforceError,
   schemaEFormulario,
+  schemaDasListas,
   buscarSla,
   buscarReferencias,
 } from './salesforce.js';
@@ -355,6 +356,22 @@ app.post('/api/replay', async (req, res) => {
     }
   }
 
+  // `listas:<Objeto>[,<Objeto>]` — schema e Record Types dos objetos dos itens
+  // das listas repetíveis, no mesmo composite que o adaptador monta.
+  if (typeof replayId === 'string' && replayId.startsWith('listas:')) {
+    const objetos = replayId.slice('listas:'.length).split(',').filter(Boolean);
+    if (objetos.length === 0 || objetos.some((o) => !/^[A-Za-z0-9_]{1,64}$/.test(o))) {
+      return res.status(400).json({ error: `Objetos inválidos: ${objetos.join(',')}` });
+    }
+    const inicio = Date.now();
+    try {
+      const { raw, request } = await schemaDasListas(objetos);
+      return responder(res, inicio, path, raw, request);
+    } catch (err) {
+      return res.status(502).json({ path, error: err.message, preview: null });
+    }
+  }
+
   // `catalog:<SOURCE>` lista; `catalog:<SOURCE>:<Id>` resolve um formulário só.
   if (typeof replayId === 'string' && replayId.startsWith('catalog:')) {
     const [source, formId = null] = replayId.slice('catalog:'.length).split(':');
@@ -440,15 +457,16 @@ app.post('/api/create-record', async (req, res) => {
     if (falhou) {
       const ehPai = falhou === criacao;
       const ehVinculo = /^vinculo\d+$/.test(falhou.referenceId ?? '');
+      const ehItem = /^item\d+$/.test(falhou.referenceId ?? '');
       const erro = Array.isArray(falhou.body) ? falhou.body[0] : falhou.body;
-      // Consulta do Caso vazia faz o vínculo falhar com "No value for
+      // Consulta do Caso vazia faz o item ou o vínculo falhar com "No value for
       // casoGerado.records[0].Id": o sintoma. A causa é o envio não ter
       // gerado Caso, e é isso que vale dizer.
-      const semCaso = ehVinculo && /casoGerado/.test(erro?.message ?? '');
+      const semCaso = (ehVinculo || ehItem) && /casoGerado/.test(erro?.message ?? '');
       return res.status(422).json({
         ok: false,
         error: semCaso
-          ? 'O envio não gerou Caso, então não há onde ligar os contratos. O caso auxiliar está ligado para este formulário (flag eng_rls_case_form_submission_aux e CreateAuxiliaryCase__c)? Nada foi criado.'
+          ? `O envio não gerou Caso, então não há onde ligar ${ehItem ? 'os itens da lista' : 'os contratos'}. O caso auxiliar está ligado para este formulário (flag eng_rls_case_form_submission_aux e CreateAuxiliaryCase__c)? Nada foi criado.`
           : erro?.message || 'O Salesforce recusou a criação.',
         errorCode: erro?.errorCode ?? null,
         fields: erro?.fields ?? [],
@@ -467,6 +485,7 @@ app.post('/api/create-record', async (req, res) => {
       record: leitura?.body ?? null,
       filhos: filhos.map((f, i) => ({
         object: payload.listas?.[i]?.object ?? null,
+        lista: payload.listas?.[i]?.listaLabel ?? null,
         id: f.body?.id ?? null,
       })),
       vinculos: vinculos.map((r, i) => {

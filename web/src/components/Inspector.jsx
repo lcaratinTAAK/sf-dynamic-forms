@@ -342,6 +342,8 @@ function Payload({ contract, result, createResult, creating, onCreate }) {
         </div>
       )}
 
+      {result.etapas?.length > 0 && <Etapas etapas={result.etapas} />}
+
       <pre className="json">{JSON.stringify(result.request, null, 2)}</pre>
 
       <div className="create-bar">
@@ -357,6 +359,35 @@ function Payload({ contract, result, createResult, creating, onCreate }) {
 
       {createResult && <CreateResult result={createResult} objeto={contract?.object} />}
     </>
+  );
+}
+
+/**
+ * O composite em palavras, na ordem em que o Salesforce executa: o registro, a
+ * leitura do Caso que o trigger criou, cada item de lista e cada contrato. É o
+ * que quem monta o envio no canal precisa conferir — a ordem e de onde vem cada
+ * vínculo — sem decifrar o JSON.
+ */
+function Etapas({ etapas }) {
+  return (
+    <div className="note etapas">
+      <strong>Como o composite foi montado</strong>
+      <ol className="etapas-lista">
+        {etapas.map((e) => (
+          <li key={e.referenceId}>
+            <span className={`verbo verbo-${e.method.toLowerCase()}`}>{e.method}</span>
+            <code>{e.alvo}</code>
+            <span className="etapas-ref">{e.referenceId}</span>
+            <span className="help">{e.nota}</span>
+          </li>
+        ))}
+      </ol>
+      <div className="help">
+        Uma transação só (<code>allOrNone: true</code>): se um item falhar, o registro e o Caso também
+        voltam. Os itens se ligam ao Caso pelo <code>@{'{casoGerado.records[0].Id}'}</code>, e o
+        trigger do item preenche o vínculo com o envio.
+      </div>
+    </div>
   );
 }
 
@@ -411,6 +442,13 @@ function CreateResult({ result, objeto }) {
           )}
         </dl>
         {result.attachmentsNote && <div className="help">{result.attachmentsNote}</div>}
+        {result.filhos?.length > 0 && (
+          <div className="help">
+            {result.filhos.length} item(ns) de lista criado(s):{' '}
+            {result.filhos.map((f) => `${f.lista ?? f.object} → ${f.id}`).join(' · ')}. O Record Type e os
+            valores padrão da lista são aplicados pelo trigger do item.
+          </div>
+        )}
         {result.vinculos?.length > 0 && (
           <div className="help">
             {result.vinculos.length} {result.vinculos[0].object} criado(s) no Caso gerado:{' '}

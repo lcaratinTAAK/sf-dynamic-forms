@@ -3,14 +3,14 @@ import Field from './Field.jsx';
 import { cenariosPara, suportaDemo } from '../demoData.js';
 import * as api from '../api.js';
 // O MESMO avaliador que o servidor usa. Um módulo puro, sem I/O.
-import { isRequired, isVisible, validar } from '../../../server/contract.js';
+import { avaliarGrupo, escopoDoItem, isRequired, isVisible, validar } from '../../../server/contract.js';
 
 /**
  * Referência múltipla: uma linha por contrato, com "Nova linha" e lixeira.
  *
  * A resposta é um array de ids externos em `values[item.apiName]`. Nada disso
  * vai no registro do formulário: cada linha preenchida vira um
- * `CaseContract__c` ligado ao Caso gerado (ver `subrequisicoesDeVinculo`).
+ * `CaseContract__c` ligado ao Caso gerado (ver `compositeDoEnvio`).
  *
  * Na POC não há cliente logado para listar os contratos DELE, então as
  * sugestões vêm da org pelo BFF; digitar um id externo à mão continua valendo,
@@ -218,11 +218,20 @@ function Attachments({ attachments, files, onFiles }) {
 /**
  * Uma lista repetível. Cada item é um bloco com os mesmos campos, e cada bloco
  * vira um registro do objeto do item no envio — não campos no Caso.
+ *
+ * Cada item é avaliado no próprio escopo (`escopoDoItem`): as regras dos campos
+ * leem as respostas daquele item, ou as do formulário quando a regra aponta o
+ * objeto do formulário (`ConditionObjectApiName__c`). É a mesma função que o
+ * servidor usa para montar o envio.
  */
-function Lista({ secao, values, onLista, files, onFiles }) {
+function Lista({ secao, objeto, values, onLista, files, onFiles }) {
   const itens = (values.__listas && values.__listas[secao.id]) || [];
-  const campos = secao.fields.filter((f) => !f.hidden);
   const noMaximo = Boolean(secao.maxItems) && itens.length >= secao.maxItems;
+  const vinculo = secao.caseField
+    ? `${secao.caseField} = id do Caso`
+    : secao.childRelationshipField
+      ? `${secao.childRelationshipField} = id do registro`
+      : null;
 
   return (
     <div className="section is-lista">
@@ -231,13 +240,42 @@ function Lista({ secao, values, onLista, files, onFiles }) {
         <span className="ruled ruled-lista">
           {itens.length} {itens.length === 1 ? 'item' : 'itens'} · cada um vira um{' '}
           <code>{secao.childObject}</code>
+          {secao.childRecordTypeDevName && (
+            <>
+              {' · '}RT <code>{secao.childRecordTypeDevName}</code>
+            </>
+          )}
         </span>
+        {secao.visibility && <span className="ruled">condicional</span>}
       </header>
+
+      <div className="lista-meta help">
+        {vinculo && <code>{vinculo}</code>}
+        {secao.listField && (
+          <>
+            {' · '}
+            <code>{secao.listField} = id da lista</code>
+          </>
+        )}
+        {secao.listDefaults?.length > 0 && (
+          <>
+            {' · '}valor padrão aplicado pelo Salesforce:{' '}
+            {secao.listDefaults.map((d) => (
+              <code key={d.field}>
+                {d.field} = {d.value}
+              </code>
+            ))}
+          </>
+        )}
+      </div>
 
       <div className="lista-corpo">
         {itens.length === 0 && <p className="lista-vazia">Nenhum item ainda.</p>}
 
-        {itens.map((item, i) => (
+        {itens.map((item, i) => {
+          const escopo = escopoDoItem(objeto, values, item);
+          const campos = secao.fields.filter((f) => !f.hidden && isVisible(f, escopo));
+          return (
           <div className="lista-item" key={`${secao.id}-${i}`}>
             <div className="lista-item-topo">
               <span>
@@ -254,7 +292,9 @@ function Lista({ secao, values, onLista, files, onFiles }) {
             </div>
             <div className="body">
               {campos.map((f) =>
-                (f.kind ?? 'field') === 'attachment' ? (
+                (f.kind ?? 'field') === 'content' ? (
+                  <div key={f.apiName} className="bloco-conteudo" dangerouslySetInnerHTML={{ __html: f.html }} />
+                ) : (f.kind ?? 'field') === 'attachment' ? (
                   <div className="anexo-item" key={f.apiName}>
                     <label>{f.label}</label>
                     {/* O código carrega o escopo do item: o mesmo documento
@@ -283,14 +323,18 @@ function Lista({ secao, values, onLista, files, onFiles }) {
                     key={f.apiName}
                     field={f}
                     value={item[f.apiName]}
-                    values={item}
+                    values={escopo}
                     onChange={(apiName, valor) => onLista(secao.id, 'campo', i, apiName, valor)}
+                    erro={
+                      f.validation && avaliarGrupo(f.validation, escopo, false) ? f.validation.message : undefined
+                    }
                   />
                 )
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
 
         <button
           type="button"
@@ -386,6 +430,7 @@ export default function FormRenderer({
             <Lista
               key={section.id}
               secao={section}
+              objeto={contract.object}
               values={values}
               onLista={onLista}
               files={files}

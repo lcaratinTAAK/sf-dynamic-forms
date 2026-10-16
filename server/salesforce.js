@@ -7,7 +7,7 @@
  */
 
 import { config, assertAuthConfigured } from './config.js';
-import { subrequisicoesDeVinculo } from './contract.js';
+import { compositeDoEnvio, REF_PAI } from './contract.js';
 
 let cached = null; // { accessToken, instanceUrl, mode }
 
@@ -165,7 +165,6 @@ const v = () => `/services/data/v${config.apiVersion}`;
  */
 export async function createRecordComposite(objectApiName, payload) {
   const version = `v${config.apiVersion}`;
-  const REF_PAI = 'refPai';
 
   // Compatibilidade: aceita tanto o payload completo quanto só o registro.
   const registro = payload?.request?.body?.compositeRequest
@@ -183,21 +182,9 @@ export async function createRecordComposite(objectApiName, payload) {
   const campos = CAMPOS_LEITURA[objectApiName] ?? 'Id,Name,CreatedDate';
 
   const compositeRequest = [
-    {
-      method: 'POST',
-      url: `/services/data/${version}/sobjects/${objectApiName}`,
-      referenceId: REF_PAI,
-      body: registro,
-    },
-    ...itens.map((item, i) => ({
-      method: 'POST',
-      url: `/services/data/${version}/sobjects/${item.object}`,
-      referenceId: `item${i + 1}`,
-      body: { ...item.record, [item.relationshipField]: `@{${REF_PAI}.id}` },
-    })),
-    // Contratos da referência múltipla: o Caso gerado e um CaseContract__c por
-    // escolha. O mesmo builder do payload mostrado na tela.
-    ...subrequisicoesDeVinculo(objectApiName, vinculos, REF_PAI, version),
+    // O registro, o Caso gerado, os itens de lista e os contratos — o MESMO
+    // montador do payload mostrado na tela, só com a versão de verdade.
+    ...compositeDoEnvio(objectApiName, registro, itens, vinculos, version),
     {
       method: 'GET',
       url: `/services/data/${version}/sobjects/${objectApiName}/@{${REF_PAI}.id}?fields=${campos}`,
@@ -590,22 +577,82 @@ const NOME_API = /^[A-Za-z0-9_]{1,80}$/;
  * devolve as dependências, e não entra em composite — o endpoint recusa
  * recursos de ui-api com INVALID_BATCH_REQUEST.
  */
-export async function schemaEFormulario(objectApiName, { specSoql, recordTypeDevName = null } = {}) {
-  const qSchema = `SELECT ${COLUNAS_SCHEMA} FROM EntityParticle
+/** Schema dos campos criáveis de um objeto, pelo EntityParticle. */
+const querySchema = (objectApiName) => `SELECT ${COLUNAS_SCHEMA} FROM EntityParticle
     WHERE EntityDefinition.QualifiedApiName = '${objectApiName}' AND IsCreatable = true`;
 
-  // Picklist dependente: quem controla quem.
-  //
-  // Nem o EntityParticle nem o picklist-values dizem o NOME do campo
-  // controlador — o primeiro só marca `IsDependentPicklist`, o segundo devolve
-  // `controllerValues` (valor do controlador → índice) sem nomeá-lo. Sem esse
-  // nome o formulário não sabe qual campo observar para filtrar as opções.
-  //
-  // O FieldDefinition tem `ControllingFieldDefinitionId`, no mesmo formato do
-  // `DurableId` — então uma consulta resolve o par, e ela cabe aqui dentro.
-  const qDependentes = `SELECT DurableId, QualifiedApiName, ControllingFieldDefinitionId
+/**
+ * Picklist dependente: quem controla quem.
+ *
+ * Nem o EntityParticle nem o picklist-values dizem o NOME do campo
+ * controlador — o primeiro só marca `IsDependentPicklist`, o segundo devolve
+ * `controllerValues` (valor do controlador → índice) sem nomeá-lo. Sem esse
+ * nome o formulário não sabe qual campo observar para filtrar as opções.
+ *
+ * O FieldDefinition tem `ControllingFieldDefinitionId`, no mesmo formato do
+ * `DurableId` — então uma consulta resolve o par, e ela cabe no mesmo lote.
+ */
+const queryDependentes = (objectApiName) => `SELECT DurableId, QualifiedApiName, ControllingFieldDefinitionId
     FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = '${objectApiName}'
     AND ControllingFieldDefinitionId != null`;
+
+/**
+ * O ControllingFieldDefinitionId aponta para o DurableId de OUTRO campo. A
+ * consulta de dependentes só traz quem TEM controlador, e o controlador
+ * normalmente não tem — então o índice vem do schema, que já traz todos os
+ * campos com o DurableId. Custo zero: a coluna veio junto.
+ */
+function resolverControladores(campos, linhasDep) {
+  const porDurable = {};
+  for (const c of campos) if (c.DurableId) porDurable[c.DurableId] = c.QualifiedApiName;
+  const controladorDe = {};
+  for (const d of linhasDep) {
+    // Sem resolver o nome, guarda o id: um vínculo opaco ainda é melhor que
+    // nenhum, e deixa visível que faltou resolver.
+    controladorDe[d.QualifiedApiName] = porDurable[d.ControllingFieldDefinitionId] ?? d.ControllingFieldDefinitionId;
+  }
+  return controladorDe;
+}
+
+/**
+ * O que os campos de DENTRO das listas precisam, numa viagem só.
+ *
+ * Os campos de uma lista são do objeto dos itens (`ChildObjectApiName__c`), não
+ * do formulário: o schema e as picklists deles vêm desse objeto. O objeto só é
+ * conhecido depois de ler a especificação, então esta viagem é a segunda — não
+ * cabe no composite da especificação sem depender do retorno dela.
+ *
+ *   schema_<objeto>       EntityParticle do objeto dos itens
+ *   dependentes_<objeto>  FieldDefinition, quem controla cada picklist dependente
+ *   recordTypes           os Record Types ativos dos objetos dos itens, para
+ *                         trocar o `ChildRecordTypeDevName__c` da lista pelo Id
+ */
+export async function schemaDasListas(objetos) {
+  const validos = [...new Set(objetos)].filter((o) => NOME_API.test(String(o ?? '')));
+  if (validos.length === 0) return null;
+
+  const queries = {};
+  for (const o of validos) {
+    queries[`schema_${o}`] = querySchema(o);
+    queries[`dependentes_${o}`] = queryDependentes(o);
+  }
+  queries.recordTypes =
+    `SELECT Id, Name, DeveloperName, SobjectType FROM RecordType ` +
+    `WHERE SobjectType IN (${validos.map((o) => `'${o}'`).join(', ')}) AND IsActive = true`;
+
+  const { raw, request, refeitos, registros } = await consultasEmLote(queries);
+
+  const porObjeto = {};
+  for (const o of validos) {
+    const campos = registros(`schema_${o}`);
+    porObjeto[o] = { campos, controladorDe: resolverControladores(campos, registros(`dependentes_${o}`)) };
+  }
+  return { raw, request, refeitos, porObjeto, recordTypes: registros('recordTypes') };
+}
+
+export async function schemaEFormulario(objectApiName, { specSoql, recordTypeDevName = null } = {}) {
+  const qSchema = querySchema(objectApiName);
+  const qDependentes = queryDependentes(objectApiName);
 
   // Interpolar num SOQL o que veio do cliente exige a guarda; sem ela, o
   // parâmetro fecharia a aspa e escreveria a própria condição.
@@ -626,22 +673,7 @@ export async function schemaEFormulario(objectApiName, { specSoql, recordTypeDev
   });
 
   const campos = registros('schema');
-  const linhasDep = registros('dependentes');
-
-  // O ControllingFieldDefinitionId aponta para o DurableId de OUTRO campo. A
-  // consulta de dependentes só traz quem TEM controlador, e o controlador
-  // normalmente não tem — então o índice vem do schema, que já traz todos os
-  // campos com o DurableId. Custo zero: a coluna veio junto.
-  const porDurable = {};
-  for (const c of campos) if (c.DurableId) porDurable[c.DurableId] = c.QualifiedApiName;
-
-  const controladorDe = {};
-  for (const d of linhasDep) {
-    const nome = porDurable[d.ControllingFieldDefinitionId];
-    // Sem resolver o nome, guarda o id: um vínculo opaco ainda é melhor que
-    // nenhum, e deixa visível que faltou resolver.
-    controladorDe[d.QualifiedApiName] = nome ?? d.ControllingFieldDefinitionId;
-  }
+  const controladorDe = resolverControladores(campos, registros('dependentes'));
 
   return {
     raw,

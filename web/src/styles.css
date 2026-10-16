@@ -1095,3 +1095,29 @@ dl.created dd.sla-campo {
   font-family: var(--mono);
   font-size: 10.5px;
 }
+
+/* Lista repetível: de onde o item vem e como se liga, abaixo do título. */
+.lista-meta {
+  padding: 4px 16px 0;
+}
+.lista-meta code {
+  margin-right: 4px;
+}
+
+/* O composite em palavras, acima do JSON do payload. */
+.etapas-lista {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+.etapas-lista li {
+  margin: 4px 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+.etapas-ref {
+  font-family: var(--mono, ui-monospace, Menlo, Consolas, monospace);
+  font-size: 11px;
+  color: var(--text-faint);
+}

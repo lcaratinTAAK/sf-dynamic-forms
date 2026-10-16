@@ -2,7 +2,7 @@
   "info": {
     "name": "Salesforce · Formulários dinâmicos (fonte Custom)",
     "_postman_id": "9f2a1c40-5f1e-4c3a-9d21-7f4b2c8ad001",
-    "description": "As chamadas que montam e submetem um formulário dinâmico a partir de `FormDefinition__c`.\n\nA coleção roda **de cima para baixo**: cada pasta grava nas variáveis o que a próxima precisa. Rode `00 · Autenticação` primeiro e depois use o Collection Runner, ou dispare uma a uma na ordem.\n\n### Antes de começar\n\nPreencha o *environment* da org (`Scratch org` ou `FornoV1`), sempre na coluna **Current value**:\n\n| variável | onde achar |\n| :-- | :-- |\n| `loginUrl` | o **My Domain** da org, ex. `https://quintoandar--fornov1.sandbox.my.salesforce.com`. Client Credentials não aceita `test.salesforce.com` nem `login.salesforce.com` |\n| `clientId` / `clientSecret` | Consumer Key (começa com `3MVG`) e Consumer Secret do External Client App **da mesma org do `loginUrl`**, com Client Credentials habilitado |\n| `instanceUrl` | preenchido automaticamente pela autenticação |\n\nComo atalho, dá para pular o OAuth e colar um token direto em `accessToken` + `instanceUrl`:\n\n```\nsf org auth show-access-token --no-prompt --json -o <alias>\n```\n\n> `sf org display` **não** serve: ele devolve o token como `[REDACTED]`.\n\n### Pastas\n\n- **00** autenticação e identidade\n- **01** as quatro chamadas que montam um formulário\n- **02** o envio, com e sem registros filhos\n- **03** o BFF — o contrato normalizado, que é o que os canais consomem\n- **04** alternativas medidas, incluindo as que **falham de propósito**\n- **05** diagnóstico\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **07** o SLA do caso gerado\n- **08** o fluxo do SI, do envio aos SLAs — em passos ou num composite só\n- **SUBMIT** o submit do SI num composite só: envio, Caso, anexos e SLA\n\nPesos e tempos citados nas descrições foram medidos numa scratch org com `Case` em 397 campos criáveis.",
+    "description": "As chamadas que montam e submetem um formulário dinâmico a partir de `FormDefinition__c`.\n\nA coleção roda **de cima para baixo**: cada pasta grava nas variáveis o que a próxima precisa. Rode `00 · Autenticação` primeiro e depois use o Collection Runner, ou dispare uma a uma na ordem.\n\n### Antes de começar\n\nPreencha o *environment* da org (`Scratch org` ou `FornoV1`), sempre na coluna **Current value**:\n\n| variável | onde achar |\n| :-- | :-- |\n| `loginUrl` | o **My Domain** da org, ex. `https://quintoandar--fornov1.sandbox.my.salesforce.com`. Client Credentials não aceita `test.salesforce.com` nem `login.salesforce.com` |\n| `clientId` / `clientSecret` | Consumer Key (começa com `3MVG`) e Consumer Secret do External Client App **da mesma org do `loginUrl`**, com Client Credentials habilitado |\n| `instanceUrl` | preenchido automaticamente pela autenticação |\n\nComo atalho, dá para pular o OAuth e colar um token direto em `accessToken` + `instanceUrl`:\n\n```\nsf org auth show-access-token --no-prompt --json -o <alias>\n```\n\n> `sf org display` **não** serve: ele devolve o token como `[REDACTED]`.\n\n### Pastas\n\n- **00** autenticação e identidade\n- **01** as quatro chamadas que montam um formulário\n- **02** o envio, com e sem registros filhos\n- **03** o BFF — o contrato normalizado, que é o que os canais consomem\n- **04** alternativas medidas, incluindo as que **falham de propósito**\n- **05** diagnóstico\n- **06** uma consulta por Record Type, para quem converte as linhas (ver `docs/FormDefinition-Guia-SI.md`)\n- **07** o SLA do caso gerado\n- **08** o fluxo do SI, do envio aos SLAs — em passos ou num composite só\n- **09** a lista repetível, passo a passo: cabeçalho, campos, regras, Record Type e picklists dos itens, e o envio com os itens\n- **SUBMIT** o submit do SI num composite só: envio, Caso, anexos e SLA\n\nPesos e tempos citados nas descrições foram medidos numa scratch org com `Case` em 397 campos criáveis.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -99,6 +99,46 @@
       "key": "caseId",
       "value": "",
       "description": "Preenchido pela chamada 07 · A."
+    },
+    {
+      "key": "listaId",
+      "value": "",
+      "description": "Preenchido pela pasta 09, passo 1: o Id da lista (RepeatingSection)."
+    },
+    {
+      "key": "itemObject",
+      "value": "",
+      "description": "Preenchido pela pasta 09, passo 1: o objeto dos itens (ChildObjectApiName__c)."
+    },
+    {
+      "key": "itemRecordTypeDevName",
+      "value": "",
+      "description": "Preenchido pela pasta 09, passo 1: ChildRecordTypeDevName__c."
+    },
+    {
+      "key": "itemRecordTypeId",
+      "value": "",
+      "description": "Preenchido pela pasta 09, passo 4: o Id do Record Type dos itens."
+    },
+    {
+      "key": "itemCaseField",
+      "value": "",
+      "description": "Preenchido pela pasta 09, passo 1: ChildCaseFieldApiName__c."
+    },
+    {
+      "key": "itemListField",
+      "value": "",
+      "description": "Preenchido pela pasta 09, passo 1: ChildListFieldApiName__c."
+    },
+    {
+      "key": "versionKey",
+      "value": "",
+      "description": "Preenchido pela pasta 09, passo 0: VersionKey__c da raiz."
+    },
+    {
+      "key": "versionFieldApiName",
+      "value": "",
+      "description": "Preenchido pela pasta 09, passo 0: VersionFieldApiName__c da raiz."
     }
   ],
   "item": [
@@ -1326,7 +1366,7 @@
               }
             ],
             "url": {
-              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, Sort__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c, ItemLabel__c, AddButtonText__c, FilterLogicType__c, FilterLogic__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'RepeatingSection' AND IsActive__c = true ORDER BY Sort__c",
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, Sort__c, ChildObjectApiName__c, ChildRecordTypeDevName__c, ChildCaseFieldApiName__c, ChildListFieldApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c, ItemLabel__c, AddButtonText__c, FilterLogicType__c, FilterLogic__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'RepeatingSection' AND IsActive__c = true ORDER BY Sort__c",
               "host": [
                 "{{instanceUrl}}"
               ],
@@ -1339,11 +1379,11 @@
               "query": [
                 {
                   "key": "q",
-                  "value": "SELECT Id, Name, Sort__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c, ItemLabel__c, AddButtonText__c, FilterLogicType__c, FilterLogic__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'RepeatingSection' AND IsActive__c = true ORDER BY Sort__c"
+                  "value": "SELECT Id, Name, Sort__c, ChildObjectApiName__c, ChildRecordTypeDevName__c, ChildCaseFieldApiName__c, ChildListFieldApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c, ItemLabel__c, AddButtonText__c, FilterLogicType__c, FilterLogic__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'RepeatingSection' AND IsActive__c = true ORDER BY Sort__c"
                 }
               ]
             },
-            "description": "Listas. Os campos filhos endereçam `ChildObjectApiName__c`, não o objeto do formulário."
+            "description": "Listas. Os campos filhos endereçam `ChildObjectApiName__c`, não o objeto do formulário. `ChildRecordTypeDevName__c` é o Record Type dos itens; `ChildCaseFieldApiName__c` e `ChildListFieldApiName__c` dizem em que campo do item vão o Id do Caso e o Id da lista. Passo a passo completo: pasta 09."
           },
           "event": [
             {
@@ -1502,7 +1542,7 @@
               }
             ],
             "url": {
-              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, Parent__c, Sort__c, ConditionFieldApiName__c, Operator__c, Value__c, ValueSource__c, Effect__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Rule' AND IsActive__c = true ORDER BY Parent__c, Effect__c, Sort__c",
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, Parent__c, Sort__c, ConditionFieldApiName__c, ConditionObjectApiName__c, Operator__c, Value__c, ValueSource__c, Effect__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Rule' AND IsActive__c = true ORDER BY Parent__c, Effect__c, Sort__c",
               "host": [
                 "{{instanceUrl}}"
               ],
@@ -1515,11 +1555,11 @@
               "query": [
                 {
                   "key": "q",
-                  "value": "SELECT Id, Name, Parent__c, Sort__c, ConditionFieldApiName__c, Operator__c, Value__c, ValueSource__c, Effect__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Rule' AND IsActive__c = true ORDER BY Parent__c, Effect__c, Sort__c"
+                  "value": "SELECT Id, Name, Parent__c, Sort__c, ConditionFieldApiName__c, ConditionObjectApiName__c, Operator__c, Value__c, ValueSource__c, Effect__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Rule' AND IsActive__c = true ORDER BY Parent__c, Effect__c, Sort__c"
                 }
               ]
             },
-            "description": "Condições. `Parent__c` é o alvo; o modo de combinação e a mensagem ficam no alvo."
+            "description": "Regras. `ConditionObjectApiName__c` diz de qual objeto é o campo da condição: dentro de uma lista, o objeto do formulário lê a resposta de fora da lista; o objeto da lista, a do próprio item. Vazio = escopo do componente."
           },
           "event": [
             {
@@ -1980,6 +2020,461 @@
             },
             "description": "A variante B, com o `caseId` que a 2 tirou do retorno. Tem que devolver os mesmos registros."
           }
+        }
+      ]
+    },
+    {
+      "name": "09 · Lista repetível · passo a passo",
+      "description": "Como consumir uma lista repetível, na ordem: o cabeçalho da lista, os campos, as regras, o Record Type e as picklists dos itens, e o envio.\n\nDepende de `formId` (a raiz do formulário). Para o FormTest do forno: `a1Tbe0000021YRVEA2`. Os passos gravam nas variáveis o que o seguinte precisa: `listaId`, `itemObject`, `itemRecordTypeDevName`, `itemRecordTypeId`, `itemCaseField`, `itemListField`, `versionKey`, `versionFieldApiName`.\n\nOs passos 0 a 7 só leem. O passo 8 cria registros.\n\nReferência: seção 14 do guia `FormDefinition__c — guia de integração`.",
+      "item": [
+        {
+          "name": "0 · Raiz do formulário · versão e campo da versão",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, FormKey__c, VersionKey__c, Status__c, ObjectApiName__c, VersionFieldApiName__c FROM {{specObject}} WHERE Id = '{{formId}}'",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, FormKey__c, VersionKey__c, Status__c, ObjectApiName__c, VersionFieldApiName__c FROM {{specObject}} WHERE Id = '{{formId}}'"
+                }
+              ]
+            },
+            "description": "De onde vem o `VersionKey__c` que vai no campo `VersionFieldApiName__c` do envio. É por ele que o trigger do envio acha o formulário e cria o Caso auxiliar — sem Caso, os itens não têm onde se ligar."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Environment vence collection na resolução: grava no environment se a chave existe lá.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.has(chave) ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));",
+                  "const raiz = r.records[0] || {};",
+                  "guardar('versionKey', raiz.VersionKey__c || '');",
+                  "guardar('versionFieldApiName', raiz.VersionFieldApiName__c || '');",
+                  "console.log('versão ' + raiz.VersionKey__c + ' → campo ' + (raiz.VersionFieldApiName__c || '(nenhum)'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1 · Cabeçalho da lista",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, Sort__c, ChildObjectApiName__c, ChildRecordTypeDevName__c, ChildCaseFieldApiName__c, ChildListFieldApiName__c, ChildRelationshipField__c, ItemLabel__c, AddButtonText__c, MinItems__c, MaxItems__c, FilterLogicType__c, FilterLogic__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'RepeatingSection' AND IsActive__c = true ORDER BY Sort__c",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, Sort__c, ChildObjectApiName__c, ChildRecordTypeDevName__c, ChildCaseFieldApiName__c, ChildListFieldApiName__c, ChildRelationshipField__c, ItemLabel__c, AddButtonText__c, MinItems__c, MaxItems__c, FilterLogicType__c, FilterLogic__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'RepeatingSection' AND IsActive__c = true ORDER BY Sort__c"
+                }
+              ]
+            },
+            "description": "As listas do formulário, sem os campos.\n\n- `Id` — a identidade da lista. Os campos (passo 2) e as regras da lista (passo 3) apontam para ele pelo `Parent__c`, e ele vai no campo `ChildListFieldApiName__c` de cada item.\n- `ChildObjectApiName__c` — o objeto em que cada item nasce.\n- `ChildRecordTypeDevName__c` — o Record Type dos itens; o Id sai no passo 4.\n- `ChildCaseFieldApiName__c` / `ChildListFieldApiName__c` — os campos do item que recebem o Id do Caso e o Id da lista.\n- `MinItems__c` / `MaxItems__c` — quantos itens preenchidos o envio exige e aceita.\n\nGrava a primeira lista nas variáveis para os passos seguintes."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Environment vence collection na resolução: grava no environment se a chave existe lá.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.has(chave) ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));",
+                  "const lista = r.records[0];",
+                  "if (lista) {",
+                  "  guardar('listaId', lista.Id);",
+                  "  guardar('itemObject', lista.ChildObjectApiName__c);",
+                  "  guardar('itemRecordTypeDevName', lista.ChildRecordTypeDevName__c || '');",
+                  "  guardar('itemCaseField', lista.ChildCaseFieldApiName__c || '');",
+                  "  guardar('itemListField', lista.ChildListFieldApiName__c || '');",
+                  "  console.log('lista \"' + lista.Name + '\" → ' + lista.ChildObjectApiName__c + ' · RT ' + lista.ChildRecordTypeDevName__c);",
+                  "}",
+                  "pm.test('o formulário tem lista', () => pm.expect(r.totalSize).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2 · Campos da lista",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, Parent__c, RecordType.DeveloperName, Sort__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsRequired__c, IsReadOnly__c, IsHidden__c, Width__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, Body__c, FilterLogicType__c, FilterLogic__c, RequiredLogicType__c, ValidationLogicType__c, Message__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND IsActive__c = true AND Parent__r.RecordType.DeveloperName = 'RepeatingSection' AND RecordType.DeveloperName IN ('Field', 'Attachment', 'Content') ORDER BY Parent__c, Sort__c NULLS FIRST, Name",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, Parent__c, RecordType.DeveloperName, Sort__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsRequired__c, IsReadOnly__c, IsHidden__c, Width__c, DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c, Body__c, FilterLogicType__c, FilterLogic__c, RequiredLogicType__c, ValidationLogicType__c, Message__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND IsActive__c = true AND Parent__r.RecordType.DeveloperName = 'RepeatingSection' AND RecordType.DeveloperName IN ('Field', 'Attachment', 'Content') ORDER BY Parent__c, Sort__c NULLS FIRST, Name"
+                }
+              ]
+            },
+            "description": "Tudo que se desenha dentro de cada item, de todas as listas do formulário.\n\n- `Parent__c` — de qual lista é o componente (o `Id` do passo 1).\n- `FieldApiName__c` — campo do objeto da LISTA, não do formulário. Rótulo e tipo vêm do schema dele (passo 5).\n- `IsHidden__c` — não desenha, mas vai em cada item com `DefaultValue__c`.\n- `Attachment` — documento pedido por item; o arquivo vai para o registro do item.\n\nOs `FieldMapping` `LISTPREFILL` (valores padrão da lista) ficam de fora de propósito: o Salesforce os aplica sozinho. Ver passo 7."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3 · Regras · da lista inteira e dos campos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Name, Parent__c, Parent__r.Name, Parent__r.RecordType.DeveloperName, Sort__c, Effect__c, ConditionObjectApiName__c, ConditionFieldApiName__c, Operator__c, Value__c, ValueSource__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Rule' AND IsActive__c = true AND (Parent__r.RecordType.DeveloperName = 'RepeatingSection' OR Parent__r.Parent__r.RecordType.DeveloperName = 'RepeatingSection') ORDER BY Parent__r.RecordType.DeveloperName DESC, Parent__c, Effect__c, Sort__c",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Name, Parent__c, Parent__r.Name, Parent__r.RecordType.DeveloperName, Sort__c, Effect__c, ConditionObjectApiName__c, ConditionFieldApiName__c, Operator__c, Value__c, ValueSource__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'Rule' AND IsActive__c = true AND (Parent__r.RecordType.DeveloperName = 'RepeatingSection' OR Parent__r.Parent__r.RecordType.DeveloperName = 'RepeatingSection') ORDER BY Parent__r.RecordType.DeveloperName DESC, Parent__c, Effect__c, Sort__c"
+                }
+              ]
+            },
+            "description": "As regras da lista inteira e as dos componentes de dentro dela, uma por linha.\n\n- `Parent__r.RecordType.DeveloperName` = `RepeatingSection` → regra da lista inteira (mostra ou esconde a lista; lê sempre o formulário).\n- `Field` / `Attachment` / `Content` → regra de um componente da lista.\n- `ConditionObjectApiName__c` = objeto do formulário → o valor vem de fora da lista; = objeto da lista → do próprio item; vazio → escopo do componente.\n\nA lógica de combinação fica no alvo: `FilterLogicType__c` (SHOW), `RequiredLogicType__c` (REQUIRE), `ValidationLogicType__c` + `Message__c` (BLOCK) — vieram nos passos 1 e 2."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4 · Record Type dos itens",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, DeveloperName, Name FROM RecordType WHERE SobjectType = '{{itemObject}}' AND IsActive = true",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, DeveloperName, Name FROM RecordType WHERE SobjectType = '{{itemObject}}' AND IsActive = true"
+                }
+              ]
+            },
+            "description": "A definição guarda o DeveloperName (`ChildRecordTypeDevName__c`), porque o Id muda de org para org. Aqui ele vira o Id que vai como `RecordTypeId` em cada item — guarde por org."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Environment vence collection na resolução: grava no environment se a chave existe lá.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.has(chave) ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));",
+                  "const alvo = pm.variables.get('itemRecordTypeDevName');",
+                  "const rt = r.records.find((x) => x.DeveloperName === alvo);",
+                  "if (rt) { guardar('itemRecordTypeId', rt.Id); console.log(alvo + ' → ' + rt.Id); }",
+                  "pm.test('Record Type dos itens resolvido', () => pm.expect(rt, 'DeveloperName ' + alvo + ' não achado').to.be.ok);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5 · Schema dos campos do item",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT QualifiedApiName, Label, DataType, Length, InlineHelpText, IsNillable, IsCreatable FROM EntityParticle WHERE EntityDefinition.QualifiedApiName = '{{itemObject}}' AND IsCreatable = true",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT QualifiedApiName, Label, DataType, Length, InlineHelpText, IsNillable, IsCreatable FROM EntityParticle WHERE EntityDefinition.QualifiedApiName = '{{itemObject}}' AND IsCreatable = true"
+                }
+              ]
+            },
+            "description": "Rótulo, tipo, tamanho e ajuda dos campos do passo 2. Vêm do objeto da lista, não do formulário."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6 · Picklists do item, por Record Type",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/ui-api/object-info/{{itemObject}}/picklist-values/{{itemRecordTypeId}}",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "ui-api",
+                "object-info",
+                "{{itemObject}}",
+                "picklist-values",
+                "{{itemRecordTypeId}}"
+              ]
+            },
+            "description": "Os valores válidos das picklists do item no Record Type da lista. Várias são restritas: valor fora do Record Type faz o item ser rejeitado no envio. Não é SOQL e não entra em composite."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const campos = Object.keys(pm.response.json().picklistFieldValues || {});",
+                  "console.log(campos.length + ' picklist(s): ' + campos.join(', '));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7 · Valores padrão da lista (LISTPREFILL) · conferência",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/query?q=SELECT Id, Parent__c, MappingType__c, TargetFieldApiName__c, DefaultValue__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'FieldMapping' AND MappingType__c = 'LISTPREFILL' AND IsActive__c = true",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "query"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "SELECT Id, Parent__c, MappingType__c, TargetFieldApiName__c, DefaultValue__c FROM {{specObject}} WHERE Form__c = '{{formId}}' AND RecordType.DeveloperName = 'FieldMapping' AND MappingType__c = 'LISTPREFILL' AND IsActive__c = true"
+                }
+              ]
+            },
+            "description": "O canal não usa isto: é só para conferir. Quando um item chega com o Id da lista no campo `ChildListFieldApiName__c`, o trigger do item aplica estes valores nos campos que vieram vazios, e o Record Type da lista."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "console.log(r.totalSize + ' linha(s)' + (r.done ? '' : ' — CORTADO: done=false, há mais páginas'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8 · Enviar · envio + Caso + itens · composite",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"allOrNone\": true,\n  \"compositeRequest\": [\n    {\n      \"referenceId\": \"refPai\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}\",\n      \"body\": {\n        \"{{versionFieldApiName}}\": \"{{versionKey}}\"\n      }\n    },\n    {\n      \"referenceId\": \"casoGerado\",\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT+Id,CaseNumber+FROM+Case+WHERE+RelatedCaseFormSubmission__c='@{refPai.id}'+LIMIT+1\"\n    },\n    {\n      \"referenceId\": \"item1\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{itemObject}}\",\n      \"body\": {\n        \"RecordTypeId\": \"{{itemRecordTypeId}}\",\n        \"ExpenseMonth__c\": \"3\",\n        \"ExpenseYear__c\": \"2026\",\n        \"{{itemListField}}\": \"{{listaId}}\",\n        \"{{itemCaseField}}\": \"@{casoGerado.records[0].Id}\"\n      }\n    },\n    {\n      \"referenceId\": \"registroCriado\",\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}/@{refPai.id}?fields=Id,Name,CreatedDate\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/composite",
+              "host": [
+                "{{instanceUrl}}"
+              ],
+              "path": [
+                "services",
+                "data",
+                "v{{apiVersion}}",
+                "composite"
+              ]
+            },
+            "description": "Uma transação (`allOrNone: true`), na ordem:\n\n1. `refPai` — o registro do formulário, com a chave da versão no campo da versão (passo 0). Acrescente as respostas do formulário.\n2. `casoGerado` — o Caso que o trigger do envio criou. Itens se ligam ao Caso, não ao registro.\n3. `item1..N` — um POST por item preenchido, com:\n   - `RecordTypeId` — o Id do passo 4;\n   - `ChildCaseFieldApiName__c` (hoje `Case__c`) — o Id do Caso; o trigger do item preenche o vínculo com o envio a partir dele;\n   - `ChildListFieldApiName__c` (hoje `FormList__c`) — o Id da lista; o trigger aplica o Record Type e os valores padrão dela;\n   - as respostas do item, pelos `FieldApiName__c` do passo 2.\n\nOs campos do item do exemplo são os da lista \"Despesas\" do FormTest (forno, `formId` = `a1Tbe0000021YRVEA2`). Troque pelos da sua lista.\n\n**Isto cria registros de verdade na org da environment.**"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Environment vence collection na resolução: grava no environment se a chave existe lá.",
+                  "const guardar = (chave, valor) =>",
+                  "  pm.environment.has(chave) ? pm.environment.set(chave, valor) : pm.collectionVariables.set(chave, valor);",
+                  "",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const partes = pm.response.json().compositeResponse || [];",
+                  "",
+                  "// O erro que o composite exibe quase nunca é o erro: o pai falhar faz os filhos",
+                  "// reportarem 'Could not find the referenced operation', e um filho falhar faz o",
+                  "// pai reportar PROCESSING_HALTED. A causa é a subrequisição que não é nenhum dos dois.",
+                  "const falhas = partes.filter((p) => p.httpStatusCode >= 400);",
+                  "if (falhas.length) {",
+                  "  const raiz = falhas.find((p) => {",
+                  "    const corpo = Array.isArray(p.body) ? p.body[0] : p.body;",
+                  "    return (corpo?.errorCode || '') !== 'PROCESSING_HALTED' && !(corpo?.message || '').includes('referenced operation');",
+                  "  });",
+                  "  console.error('falha RAIZ: ' + JSON.stringify((raiz || falhas[0]).body));",
+                  "  if (JSON.stringify(raiz?.body || '').includes('casoGerado')) console.error('O envio não gerou Caso: confira a chave da versão e o caso auxiliar do formulário.');",
+                  "} else {",
+                  "  const pai = partes.find((p) => p.referenceId === 'refPai');",
+                  "  const caso = partes.find((p) => p.referenceId === 'casoGerado');",
+                  "  const itens = partes.filter((p) => /^item\\d+$/.test(p.referenceId));",
+                  "  if (pai?.body?.id) guardar('submissionId', pai.body.id);",
+                  "  console.log('Caso ' + (caso?.body?.records?.[0]?.CaseNumber || '?') + ' com ' + itens.length + ' item(ns): ' + itens.map((i) => i.body.id).join(', '));",
+                  "}",
+                  "pm.test('nenhuma subrequisição falhou', () => pm.expect(falhas.length).to.eql(0));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
