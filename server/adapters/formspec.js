@@ -72,7 +72,7 @@ const CAMPOS = `Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c,
   VersionFieldApiName__c, QueueDeveloperName__c,
   Channel__c, PublicLabel__c, Description__c,
   FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c, IsHidden__c,
-  IsRequired__c, IsReadOnly__c,
+  IsRequired__c, IsReadOnly__c, Choices__c,
   DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c,
   ConditionFieldApiName__c, ConditionObjectApiName__c, Operator__c, Value__c, Effect__c,
   FilterLogicType__c, FilterLogic__c,
@@ -82,6 +82,13 @@ const CAMPOS = `Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c,
   ChildRecordTypeDevName__c, ChildCaseFieldApiName__c, ChildListFieldApiName__c,
   MappingType__c, TargetFieldApiName__c,
   ReferenceType__c, ReferenceObjectApiName__c, ExternalIdFieldApiName__c`.replace(/\s+/g, ' ');
+
+/** Choices__c é salvo como "a,b,c"; o Salesforce já normaliza (trim, sem repetidos). */
+const splitChoices = (raw) =>
+  String(raw ?? '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
 
 /** O Record Type implícito, para pedir picklists de um objeto sem Record Type na lista. */
 const MASTER_RECORD_TYPE_ID = '012000000000000AAA';
@@ -600,6 +607,17 @@ export function specToContract(
       });
       campo = applyEntityParticle(campo, ctx.indiceDeCampos, ctx.controladorDe);
       if (ctx.picklists) campo = applyPicklistValues(campo, ctx.picklists);
+
+      // Escolhas cadastradas no Form Builder (Choices__c, "a,b,c") num campo
+      // de texto: o canal desenha como lista de opções, e o que vai pro
+      // Salesforce continua sendo o texto escolhido.
+      const escolhas = t === 'Field' ? splitChoices(r.Choices__c) : [];
+      if (escolhas.length) {
+        campo.options = escolhas.map((v) => ({ value: v, label: v, validFor: [] }));
+        campo.controllerField = null;
+        campo.controllerValues = null;
+        campo.dataType = 'Picklist';
+      }
 
       // O que a especificação diz vence o schema, porque é escolha de
       // formulário; o resto continua vindo do object-info.
