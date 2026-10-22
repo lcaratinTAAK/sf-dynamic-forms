@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Field from './Field.jsx';
 import { cenariosPara, suportaDemo } from '../demoData.js';
 import * as api from '../api.js';
@@ -6,11 +6,116 @@ import * as api from '../api.js';
 import { avaliarGrupo, escopoDoItem, isRequired, isVisible, validar } from '../../../server/contract.js';
 
 /**
- * Referência múltipla: uma linha por contrato, com "Nova linha" e lixeira.
+ * Bloco de conteúdo: Body__c é HTML vindo do editor rico do Form Builder
+ * (lightning-input-rich-text) — negrito, cores inline, listas, links, títulos,
+ * alinhamento e recuo. No Salesforce quem desenha é o
+ * lightning-formatted-rich-text, que já sanitiza; aqui o HTML passa por uma
+ * lista de permissões antes do `dangerouslySetInnerHTML`.
+ *
+ * Suficiente para uma POC, não um sanitizador de produção: tag fora da lista
+ * vira só o texto dela (as perigosas somem inteiras), atributo fora da lista
+ * cai, `style` fica só com as propriedades de formatação, e link só sai com
+ * http(s), mailto ou tel.
+ */
+const TAGS_DO_CONTEUDO = new Set([
+  'P', 'BR', 'DIV', 'SPAN', 'B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'DEL', 'SUB', 'SUP',
+  'UL', 'OL', 'LI', 'A', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE', 'CODE', 'HR',
+]);
+const TAGS_DESCARTADAS = new Set([
+  'SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'SVG', 'MATH', 'FORM', 'INPUT', 'BUTTON',
+  'TEXTAREA', 'SELECT', 'LINK', 'META', 'BASE', 'TEMPLATE', 'NOSCRIPT', 'IMG', 'VIDEO', 'AUDIO',
+]);
+const ESTILOS_DO_CONTEUDO = new Set([
+  'color', 'background-color', 'text-align', 'font-size', 'font-family', 'font-weight',
+  'font-style', 'text-decoration', 'padding-left', 'margin-left',
+]);
+
+function limparEstilo(estilo) {
+  return String(estilo)
+    .split(';')
+    .map((d) => d.split(':'))
+    .filter(([prop, ...resto]) => {
+      const valor = resto.join(':').toLowerCase();
+      return (
+        ESTILOS_DO_CONTEUDO.has(prop?.trim().toLowerCase()) &&
+        valor.trim() &&
+        !/url\(|expression|javascript:|[<>]/.test(valor)
+      );
+    })
+    .map(([prop, ...resto]) => `${prop.trim().toLowerCase()}: ${resto.join(':').trim()}`)
+    .join('; ');
+}
+
+function limparNo(no) {
+  for (const filho of [...no.childNodes]) {
+    if (filho.nodeType === 3) continue; // texto
+    if (filho.nodeType !== 1) {
+      filho.remove(); // comentário e afins
+      continue;
+    }
+    const tag = filho.tagName.toUpperCase();
+    if (TAGS_DESCARTADAS.has(tag)) {
+      filho.remove();
+      continue;
+    }
+    limparNo(filho);
+    if (!TAGS_DO_CONTEUDO.has(tag)) {
+      // Tag desconhecida (font, table…): fica o conteúdo, sai a tag.
+      filho.replaceWith(...filho.childNodes);
+      continue;
+    }
+    for (const attr of [...filho.attributes]) {
+      const nome = attr.name.toLowerCase();
+      if (nome === 'style') {
+        const estilo = limparEstilo(attr.value);
+        if (estilo) filho.setAttribute('style', estilo);
+        else filho.removeAttribute('style');
+      } else if (nome === 'class') {
+        // Só as classes do Quill (ql-align-*, ql-indent-*), que o CSS desenha.
+        const classes = attr.value.split(/\s+/).filter((c) => /^ql-[a-z0-9-]+$/.test(c));
+        if (classes.length) filho.setAttribute('class', classes.join(' '));
+        else filho.removeAttribute('class');
+      } else if (!(tag === 'A' && nome === 'href')) {
+        filho.removeAttribute(attr.name);
+      }
+    }
+    if (tag === 'A') {
+      const href = (filho.getAttribute('href') || '').trim();
+      if (/^(https?:|mailto:|tel:)/i.test(href)) {
+        filho.setAttribute('target', '_blank');
+        filho.setAttribute('rel', 'noopener noreferrer');
+      } else {
+        filho.removeAttribute('href');
+      }
+    }
+  }
+}
+
+/** HTML do Body__c pronto para o `dangerouslySetInnerHTML`. */
+function htmlSeguro(html) {
+  if (!html) return '';
+  if (typeof DOMParser === 'undefined') {
+    // Sem DOM (não deveria acontecer no navegador): melhor texto puro que HTML cru.
+    return String(html).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  }
+  const doc = new DOMParser().parseFromString(String(html), 'text/html');
+  limparNo(doc.body);
+  return doc.body.innerHTML;
+}
+
+function BlocoConteudo({ html }) {
+  const limpo = useMemo(() => htmlSeguro(html), [html]);
+  return <div className="bloco-conteudo" dangerouslySetInnerHTML={{ __html: limpo }} />;
+}
+
+/**
+ * Referência múltipla: uma linha por escolha, com "Nova linha" e lixeira.
  *
  * A resposta é um array de ids externos em `values[item.apiName]`. Nada disso
- * vai no registro do formulário: cada linha preenchida vira um
- * `CaseContract__c` ligado ao Caso gerado (ver `compositeDoEnvio`).
+ * vai no registro do formulário: cada linha preenchida vira um registro de
+ * `item.link.object` (ChildObjectApiName__c, ex. CaseContract__c), com o Id do
+ * Caso gerado em `link.caseField` e o id externo em `link.externalIdField` —
+ * o destino é do componente, lido da definição (ver `compositeDoEnvio`).
  *
  * Na POC não há cliente logado para listar os contratos DELE, então as
  * sugestões vêm da org pelo BFF; digitar um id externo à mão continua valendo,
@@ -18,7 +123,7 @@ import { avaliarGrupo, escopoDoItem, isRequired, isVisible, validar } from '../.
  */
 function ReferenciaMultipla({ item, values, onChange, erro }) {
   const brutos = Array.isArray(values[item.apiName]) ? values[item.apiName] : [];
-  // Nunca zero linhas: sempre há onde digitar o primeiro contrato.
+  // Nunca zero linhas: sempre há onde digitar a primeira escolha.
   const linhas = brutos.length ? brutos : [''];
   const obrigatorio = isRequired(item, values);
 
@@ -58,6 +163,7 @@ function ReferenciaMultipla({ item, values, onChange, erro }) {
         <span className="ruled ruled-lista">
           cada linha vira um <code>{item.link?.object}</code>
         </span>
+        {item.visibility && <span className="ruled">condicional</span>}
       </label>
 
       {linhas.map((valor, i) => (
@@ -99,6 +205,12 @@ function ReferenciaMultipla({ item, values, onChange, erro }) {
       {item.helpText && <span className="help">{item.helpText}</span>}
       <span className="help">
         Escolha em <code>{object}</code> por <code>{externalIdField}</code>
+        {item.link && (
+          <>
+            {' · '}cada linha cria um <code>{item.link.object}</code> com{' '}
+            <code>{item.link.caseField} = id do Caso</code> e <code>{item.link.externalIdField} = id externo</code>
+          </>
+        )}
         {falhaBusca ? ` · sem sugestões (${falhaBusca}); digite o id externo` : ''}
       </span>
       {erro && <span className="erro-validacao">{erro}</span>}
@@ -116,9 +228,7 @@ function Componente({ item, values, onChange, files, onFiles, erro }) {
   const kind = item.kind ?? 'field';
 
   if (kind === 'content') {
-    return (
-      <div className="bloco-conteudo" dangerouslySetInnerHTML={{ __html: item.html }} />
-    );
+    return <BlocoConteudo html={item.html} />;
   }
 
   if (kind === 'reference') {
@@ -293,7 +403,7 @@ function Lista({ secao, objeto, values, onLista, files, onFiles }) {
             <div className="body">
               {campos.map((f) =>
                 (f.kind ?? 'field') === 'content' ? (
-                  <div key={f.apiName} className="bloco-conteudo" dangerouslySetInnerHTML={{ __html: f.html }} />
+                  <BlocoConteudo key={f.apiName} html={f.html} />
                 ) : (f.kind ?? 'field') === 'attachment' ? (
                   <div className="anexo-item" key={f.apiName}>
                     <label>{f.label}</label>

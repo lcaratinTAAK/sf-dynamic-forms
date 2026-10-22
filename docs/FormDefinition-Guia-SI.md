@@ -47,7 +47,7 @@ Regra prática: selecione só o que o seu lado lê. Coluna a menos na SOQL é co
 | `RepeatingSection` | lista repetível; cada item vira um registro de outro objeto | raiz | Field (que endereçam o objeto filho) |
 | `Field` | um campo do objeto de destino | Section, RepeatingSection ou raiz | Rule |
 | `Reference` | um campo de texto em que o usuário **escolhe** um registro de outro objeto (contrato, imóvel) | Section ou raiz | Rule |
-| `MultiReference` | o usuário escolhe **um ou mais** contratos; cada um vira um `CaseContract__c` ligado ao caso gerado | Section ou raiz | Rule |
+| `MultiReference` | o usuário escolhe **um ou mais** registros (ex. contratos); cada escolha vira um registro do objeto que o componente declara (ex. `CaseContract__c`) ligado ao caso gerado | Section ou raiz | Rule |
 | `Attachment` | documento exigido, posicionado como componente | Section ou raiz | Rule |
 | `Content` | bloco de texto HTML fixo | Section ou raiz | Rule |
 | `Rule` | uma condição (mostrar, exigir ou bloquear) | o componente afetado | — |
@@ -70,10 +70,12 @@ ORDER BY Name
 SELECT Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, IsActive__c,
        FormKey__c, PublicLabel__c, Description__c, Channel__c, ObjectApiName__c, TargetRecordTypeDevName__c,
        FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c, DefaultValue__c,
-       IsRequired__c, IsReadOnly__c, IsHidden__c, Width__c,
+       IsRequired__c, IsReadOnly__c, IsHidden__c, Width__c, Choices__c,
        DocumentCode__c, AcceptedTypes__c, MinFiles__c, MaxFiles__c, MaxSizeMb__c,
-       ConditionFieldApiName__c, Operator__c, Value__c, ValueSource__c, Effect__c,
-       ChildObjectApiName__c, MinItems__c, MaxItems__c, ItemLabel__c, AddButtonText__c,
+       ConditionFieldApiName__c, ConditionObjectApiName__c, Operator__c, Value__c, ValueSource__c, Effect__c,
+       ChildObjectApiName__c, ChildRelationshipField__c, ChildRecordTypeDevName__c,
+       ChildCaseFieldApiName__c, ChildListFieldApiName__c,
+       MinItems__c, MaxItems__c, ItemLabel__c, AddButtonText__c,
        FilterLogicType__c, FilterLogic__c, RequiredLogicType__c, ValidationLogicType__c, Message__c,
        Body__c,
        ReferenceType__c, ReferenceObjectApiName__c, ExternalIdFieldApiName__c
@@ -88,7 +90,8 @@ ORDER BY Sort__c NULLS FIRST, Name
 SELECT Id, RecordType.DeveloperName, Parent__c, Form__c,
        FormKey__c, VersionKey__c, ObjectApiName__c, VersionFieldApiName__c,
        FieldApiName__c, DefaultValue__c, IsHidden__c, IsReadOnly__c,
-       ChildObjectApiName__c, ChildRelationshipField__c
+       ChildObjectApiName__c, ChildRelationshipField__c, ChildRecordTypeDevName__c,
+       ChildCaseFieldApiName__c, ChildListFieldApiName__c
 FROM FormDefinition__c
 WHERE (Id = :formId OR Form__c = :formId) AND IsActive__c = true
   AND RecordType.DeveloperName IN ('Form', 'RepeatingSection', 'Field', 'Reference', 'MultiReference')
@@ -181,7 +184,10 @@ Diferente de uma seção em três pontos: os campos filhos endereçam **outro ob
 | :-- | :-- | :-- | :-- | :-- |
 | Nome | `Name` | Text(80) | Front | Título da lista. |
 | Objeto do item | `ChildObjectApiName__c` | Text(80) | Front · Submit | Objeto que cada item vira, ex. `CaseMember__c`. O front lê o schema dele para os campos da lista; o submit cria os itens nele. |
-| Campo de vínculo com o pai | `ChildRelationshipField__c` | Text(80) | Submit | Lookup no objeto filho que aponta para o registro criado, ex. `Case__c`. |
+| Record Type do item | `ChildRecordTypeDevName__c` | Text(80) | Front · Submit | DeveloperName do Record Type que cada item recebe, ex. `Landlord`. O front pede as picklists do item por ele; o submit manda o `RecordTypeId` correspondente no corpo de cada item. Vazio: o item vai sem `RecordTypeId`. |
+| Campo do Caso no item | `ChildCaseFieldApiName__c` | Text(80) | Submit | Lookup no objeto do item que recebe o **Id do Caso gerado**, ex. `Case__c`. Copiado de `CaseLookupApiName__c` da entrada `RepeatingSection` do `FormBuilderAllowlist__mdt` quando o Form Builder salva. O trigger do item preenche o envio a partir do Caso. |
+| Campo da lista no item | `ChildListFieldApiName__c` | Text(80) | Submit | Lookup no objeto do item que recebe o **Id desta linha `RepeatingSection`**. Copiado de `ListLookupApiName__c` da mesma entrada (ex.: `CaseFormSubmissionItem__c` usa `Case__c` e `FormList__c`). Com ele o trigger do item aplica os valores padrão da lista (`FieldMapping` `LISTPREFILL`). |
+| Campo de vínculo com o pai | `ChildRelationshipField__c` | Text(80) | Submit | Modelo antigo: lookup no objeto filho que aponta direto para o registro criado. Só é usado quando `ChildCaseFieldApiName__c` está vazio. |
 | Mínimo de itens | `MinItems__c` | Number(3,0) | Front | Itens exigidos no envio. Vazio = 0. |
 | Máximo de itens | `MaxItems__c` | Number(3,0) | Front | Itens aceitos no envio. Vazio = sem limite. |
 | Rótulo do item | `ItemLabel__c` | Text(80) | Front | Nome de cada item na tela, ex. "Titular". |
@@ -189,7 +195,8 @@ Diferente de uma seção em três pontos: os campos filhos endereçam **outro ob
 | Lógica dos filtros / Lógica de filtro | `FilterLogicType__c`, `FilterLogic__c` | Picklist, Text | Front | Igual a `Section`. |
 
 ```sql
-SELECT Id, Name, Sort__c, ChildObjectApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c,
+SELECT Id, Name, Sort__c, ChildObjectApiName__c, ChildRecordTypeDevName__c,
+       ChildCaseFieldApiName__c, ChildListFieldApiName__c, ChildRelationshipField__c, MinItems__c, MaxItems__c,
        ItemLabel__c, AddButtonText__c, FilterLogicType__c, FilterLogic__c
 FROM FormDefinition__c
 WHERE Form__c = :formId AND RecordType.DeveloperName = 'RepeatingSection' AND IsActive__c = true
@@ -202,7 +209,10 @@ ORDER BY Sort__c
   "Name": "Quem mais assina a conta",
   "Sort__c": 25,
   "ChildObjectApiName__c": "CaseMember__c",
-  "ChildRelationshipField__c": "Case__c",
+  "ChildRecordTypeDevName__c": null,
+  "ChildCaseFieldApiName__c": "Case__c",
+  "ChildListFieldApiName__c": "FormList__c",
+  "ChildRelationshipField__c": null,
   "MinItems__c": null,
   "MaxItems__c": 4,
   "ItemLabel__c": "Titular",
@@ -226,6 +236,7 @@ Vincula uma pergunta a um campo real. Rótulo, tipo, tamanho e ajuda vêm do sch
 | Somente leitura | `IsReadOnly__c` | Checkbox | Front · Submit | Renderizado, não editável, **não enviado**. |
 | Oculto no formulário | `IsHidden__c` | Checkbox | Front · Submit | Não renderizado, mas enviado com `DefaultValue__c`. |
 | Largura | `Width__c` | Picklist: FULL, HALF, THIRD | Front | Largura na linha. |
+| Opções | `Choices__c` | LongTextArea | Front | Só para campo **texto** (`STRING`). Opções separadas por **vírgula**, ex. `Adicionar pessoa,Despesas condominio` (o Salesforce já grava sem espaços nas pontas e sem repetidas). Preenchido: o front divide na vírgula e desenha uma lista de escolha (select) no lugar do input; o que vai no submit continua sendo o **texto** escolhido, no `FieldApiName__c`. Vazio: campo de texto livre. |
 | Lógica dos filtros / Lógica de filtro | `FilterLogicType__c`, `FilterLogic__c` | Picklist, Text | Front | Como as regras `SHOW` filhas se combinam. |
 | Lógica da obrigatoriedade | `RequiredLogicType__c` | Picklist: ALL, ANY | Front | Como as regras `REQUIRE` filhas se combinam. |
 | Lógica da validação | `ValidationLogicType__c` | Picklist: ALL, ANY | Front | Como as regras `BLOCK` filhas se combinam. |
@@ -233,7 +244,7 @@ Vincula uma pergunta a um campo real. Rótulo, tipo, tamanho e ajuda vêm do sch
 
 ```sql
 SELECT Id, Name, Parent__c, Sort__c, FieldApiName__c, LabelOverride__c, HelpTextOverride__c, Placeholder__c,
-       DefaultValue__c, IsRequired__c, IsReadOnly__c, IsHidden__c, Width__c,
+       DefaultValue__c, IsRequired__c, IsReadOnly__c, IsHidden__c, Width__c, Choices__c,
        FilterLogicType__c, FilterLogic__c, RequiredLogicType__c, ValidationLogicType__c, Message__c
 FROM FormDefinition__c
 WHERE Form__c = :formId AND RecordType.DeveloperName = 'Field' AND IsActive__c = true
@@ -422,27 +433,61 @@ WHERE Category__c = 'Reference' AND IsActive__c = true
 ORDER BY SourceObjectApiName__c, MasterLabel
 ```
 
-### 11.1 `MultiReference` — vários contratos numa pergunta
+### 11.1 `MultiReference` — vários registros numa pergunta
 
-O usuário escolhe **um ou mais** contratos ("Quais contratos?"). O front desenha uma linha por contrato, com "nova linha" e excluir linha; cada linha é o mesmo seletor da `Reference`. A diferença está no submit: **nada vai no registro do formulário**. Cada contrato escolhido vira um `CaseContract__c` ligado ao caso que o envio gera.
+O usuário escolhe **um ou mais** registros ("Quais contratos?"). O front desenha uma linha por escolha, com "nova linha" e excluir linha; cada linha é o mesmo seletor da `Reference`. A diferença está no submit: **nada vai no registro do formulário**. Cada escolha vira **um registro de outro objeto**, ligado ao caso que o envio gera.
 
-As colunas são as da `Reference`, com duas diferenças:
+O destino é **do componente**: cada linha `MultiReference` diz que objeto criar e em que campos. Dois componentes no mesmo formulário podem criar objetos diferentes. O Form Builder copia esses valores da entrada da categoria `MultiReference` do `FormBuilderAllowlist__mdt` (a escolhida em `ReferenceType__c`, para o objeto do formulário) quando salva; o canal só lê a linha.
 
-| Rótulo | API Name | Quem lê | Descrição |
-| :-- | :-- | :-- | :-- |
-| Campo do objeto (API Name) | `FieldApiName__c` | — | **Sempre vazio.** Não há campo no objeto do formulário. |
-| Objeto referenciado | `ReferenceObjectApiName__c` | Front | Sempre `Contract`. O Form Builder recusa outra entidade nesse componente. |
+| Rótulo | API Name | Quem lê | Descrição | Vem de (`FormBuilderAllowlist__mdt`) |
+| :-- | :-- | :-- | :-- | :-- |
+| Entidade | `ReferenceType__c` | Front | Qual entrada `MultiReference` do allowlist o componente usa. | `ApiName__c` da entrada |
+| Objeto criado por escolha | `ChildObjectApiName__c` | Submit | Objeto do `POST` de cada escolha, ex. `CaseContract__c`. | `ApiName__c` |
+| Campo do Caso | `ChildCaseFieldApiName__c` | Submit | Lookup nesse objeto que recebe o **Id do caso gerado**, ex. `Case__c`. | `CaseLookupApiName__c` |
+| Campo da escolha | `FieldApiName__c` | Submit | Campo **texto** nesse objeto que recebe o id externo escolhido, ex. `RelatedContractExternalId__c`. **Não** é campo do objeto do formulário. | `SourceFieldApiName__c` |
+| Objeto escolhido | `ReferenceObjectApiName__c` | Front | Onde o seletor procura, ex. `Contract`. | `ReferenceObjectApiName__c` |
+| Campo de ID externo | `ExternalIdFieldApiName__c` | Front | Qual identificador do registro escolhido vai no texto, ex. `ExternalId__c`. | `ExternalIdFieldApiName__c` |
 
-`ReferenceType__c`, `ExternalIdFieldApiName__c`, `LabelOverride__c`, `HelpTextOverride__c`, `IsRequired__c`, `Width__c` e as lógicas funcionam como na `Reference`. Obrigatória significa "pelo menos um contrato". O mesmo contrato duas vezes não deve ser enviado.
+`LabelOverride__c`, `HelpTextOverride__c`, `Placeholder__c`, `IsRequired__c`, `Width__c` e as lógicas funcionam como na `Reference`. Obrigatória significa "pelo menos uma escolha". O mesmo registro duas vezes não deve ser enviado. Dentro de uma `RepeatingSection` não é suportada.
 
-O vínculo é fixo, não vem da tabela:
+```sql
+SELECT Id, Name, Parent__c, Sort__c, ReferenceType__c, ReferenceObjectApiName__c, ExternalIdFieldApiName__c,
+       ChildObjectApiName__c, ChildCaseFieldApiName__c, FieldApiName__c,
+       LabelOverride__c, HelpTextOverride__c, Placeholder__c, IsRequired__c, Width__c,
+       FilterLogicType__c, FilterLogic__c, RequiredLogicType__c, ValidationLogicType__c, Message__c
+FROM FormDefinition__c
+WHERE Form__c = :formId AND RecordType.DeveloperName = 'MultiReference' AND IsActive__c = true
+ORDER BY Parent__c, Sort__c
+```
 
-| `CaseContract__c` | Valor |
+```json
+{ "Id": "a0u88000004Z9QkAAK", "Name": "Contratos do Caso", "Sort__c": 90,
+  "ReferenceType__c": "CaseContract__c", "ReferenceObjectApiName__c": "Contract", "ExternalIdFieldApiName__c": "ExternalId__c",
+  "ChildObjectApiName__c": "CaseContract__c", "ChildCaseFieldApiName__c": "Case__c",
+  "FieldApiName__c": "RelatedContractExternalId__c",
+  "LabelOverride__c": "Quais contratos?", "IsRequired__c": true, "Width__c": "FULL" }
+```
+
+Cada escolha vira:
+
+| `ChildObjectApiName__c` (ex. `CaseContract__c`) | Valor |
 | :-- | :-- |
-| `Case__c` | o caso gerado pelo envio |
-| `RelatedContractExternalId__c` | o `ExternalId__c` do contrato escolhido, como texto |
+| `ChildCaseFieldApiName__c` (ex. `Case__c`) | o Id do caso gerado pelo envio |
+| `FieldApiName__c` (ex. `RelatedContractExternalId__c`) | o `ExternalIdFieldApiName__c` do registro escolhido, como texto |
 
-O trigger do `CaseContract__c` procura o contrato por esse id externo e preenche o lookup `RelatedContract__c`. Id que não existe não bloqueia: o registro é criado com o lookup vazio e o texto fica para rastreio. O `CaseContract__c` exige o caso auxiliar ligado no formulário; sem caso não há onde ligar os contratos.
+O trigger do objeto criado procura o registro pelo id externo e preenche o lookup (no `CaseContract__c`, `RelatedContract__c`: é o `TargetLookupApiName__c` da entrada). Id que não existe não bloqueia: o registro é criado com o lookup vazio e o texto fica para rastreio. O vínculo exige o caso auxiliar ligado no formulário; sem caso não há onde ligar as escolhas.
+
+**Linhas salvas antes do destino dinâmico** têm `ChildObjectApiName__c`, `ChildCaseFieldApiName__c` e `FieldApiName__c` vazios. Eram sempre os contratos do caso: trate coluna vazia como `CaseContract__c` / `Case__c` / `RelatedContractExternalId__c`, coluna a coluna (é o que o Form Runner e a POC fazem). Salvar o formulário de novo no Form Builder grava o destino.
+
+As entradas disponíveis:
+
+```sql
+SELECT MasterLabel, ApiName__c, SourceObjectApiName__c, CaseLookupApiName__c, SourceFieldApiName__c,
+       ReferenceObjectApiName__c, ExternalIdFieldApiName__c, TargetLookupApiName__c
+FROM FormBuilderAllowlist__mdt
+WHERE Category__c = 'MultiReference' AND IsActive__c = true
+ORDER BY SourceObjectApiName__c, MasterLabel
+```
 
 ## 12. O que gravar no submit
 
@@ -470,22 +515,27 @@ POST /services/data/v66.0/sobjects/CaseSI__c
 }
 ```
 
-Com lista repetível, uma transação (`allOrNone: true`): o pai e cada item, ligados pelo `ChildRelationshipField__c`.
+Com lista repetível, uma transação (`allOrNone: true`): o registro, a consulta do caso gerado e **um `POST` por item**. Cada item leva o que a linha `RepeatingSection` manda: o `RecordTypeId` do `ChildRecordTypeDevName__c`, o Id do caso em `ChildCaseFieldApiName__c` e o Id da própria linha `RepeatingSection` em `ChildListFieldApiName__c`. Item sem nada digitado (só valores padrão) não é enviado.
 
 ```http
 POST /services/data/v66.0/composite
 {
   "allOrNone": true,
   "compositeRequest": [
-    { "referenceId": "pai", "method": "POST", "url": "/services/data/v66.0/sobjects/CaseSI__c",
+    { "referenceId": "createSubmission", "method": "POST", "url": "/services/data/v66.0/sobjects/CaseFormSubmission__c",
       "body": { "FormVersion__c": "bank_data_change_full#3", "RequesterType__c": "Proprietario", "...": "..." } },
+    { "referenceId": "getCase", "method": "GET",
+      "url": "/services/data/v66.0/query?q=SELECT+Id+FROM+Case+WHERE+RelatedCaseFormSubmission__c='@{createSubmission.id}'+LIMIT+1" },
     { "referenceId": "item1", "method": "POST", "url": "/services/data/v66.0/sobjects/CaseMember__c",
-      "body": { "Case__c": "@{pai.id}", "Name": "Maria", "Type__c": "Landlord" } }
+      "body": { "RecordTypeId": "<Id do RT de ChildRecordTypeDevName__c>", "Name": "Maria",
+                "FormList__c": "a0u88000004XaxFAAS", "Case__c": "@{getCase.records[0].Id}" } }
   ]
 }
 ```
 
-Com `MultiReference`: depois do registro, uma consulta acha o caso gerado e cada contrato vira um `POST` de `CaseContract__c`. O caso nasce no trigger do envio, na mesma transação, então a consulta já o encontra.
+Lista do modelo antigo (sem `ChildCaseFieldApiName__c`): sem a consulta do caso, e o item aponta para o registro por `ChildRelationshipField__c` (`"Case__c": "@{createSubmission.id}"`). Formulário em `Case`: o caso é o próprio registro, então `ChildCaseFieldApiName__c` recebe `@{createSubmission.id}` e a consulta não é feita.
+
+Com `MultiReference`: depois do registro, uma consulta acha o caso gerado (a mesma dos itens de lista, feita uma vez só) e cada escolha vira um `POST` do `ChildObjectApiName__c` **do seu componente**, com o Id do caso em `ChildCaseFieldApiName__c` e o id externo em `FieldApiName__c`. O caso nasce no trigger do envio, na mesma transação, então a consulta já o encontra. No exemplo, o componente usa a entrada `CaseContract__c`:
 
 ```http
 POST /services/data/v66.0/composite
@@ -504,10 +554,10 @@ POST /services/data/v66.0/composite
 }
 ```
 
-- **Um `POST` por contrato**, não `composite/sobjects` com a lista. A coleção reporta a falha de cada registro dentro de uma resposta 200, e o `allOrNone` de fora decide pelo status da subrequisição. Com um `POST` por registro, uma falha desfaz o envio inteiro.
+- **Um `POST` por escolha** (e por item de lista), não `composite/sobjects` com a lista. A coleção reporta a falha de cada registro dentro de uma resposta 200, e o `allOrNone` de fora decide pelo status da subrequisição. Com um `POST` por registro, uma falha desfaz o envio inteiro.
 - **Referência crua na URL.** `@{createSubmission.id}` vai sem encode; encodada, a consulta devolve 200 com zero registros.
-- **Limite do composite: 25 subrequisições.** Conte o envio, a consulta do caso, os contratos e os itens de lista.
-- **Formulário em `Case`:** sem a consulta, `Case__c` recebe `@{createSubmission.id}`.
+- **Limite do composite: 25 subrequisições.** Conte o envio, a consulta do caso, as escolhas das referências múltiplas e os itens de lista.
+- **Formulário em `Case`:** sem a consulta, o `ChildCaseFieldApiName__c` recebe `@{createSubmission.id}`.
 
 ## 13. Depois do submit: o SLA do caso gerado
 

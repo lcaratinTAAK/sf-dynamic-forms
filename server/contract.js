@@ -20,9 +20,11 @@
  *                                          // kind=reference: o campo é o id externo de um registro que o
  *                                          // usuário ESCOLHE (contrato, imóvel); vai como TEXTO no submit
  *       link: { object, caseField, externalIdField, submissionField } | undefined,
- *                                          // kind=multireference: o usuário escolhe VÁRIOS contratos; nada
+ *                                          // kind=multireference: o usuário escolhe VÁRIOS registros; nada
  *                                          // vai no registro do formulário, cada escolha vira um `object`
- *                                          // (CaseContract__c) ligado ao Caso que o envio gera
+ *                                          // (ChildObjectApiName__c, ex. CaseContract__c) com o Id do Caso
+ *                                          // em `caseField` e o id externo em `externalIdField` — por
+ *                                          // componente, lidos da linha da definição
  *       options: [{ value, label, validFor }] | null,
  *       controllerField: string | null,
  *       visibility: Visibility | null
@@ -711,17 +713,17 @@ function montarItensDeLista(listas, values, objetoDoFormulario) {
         if (v !== undefined && v !== null && v !== '') registro[f.apiName] = v;
       }
 
-      // Campo oculto com valor padrão preenche sozinho — um item que só tem esses
-      // não foi preenchido por ninguém e não deve virar registro.
-      const foiPreenchido = visiveis.some((f) => !f.hidden && registro[f.apiName] !== undefined);
+      // Só o que o usuário DIGITOU conta, como no formRunner (`collectListItems`):
+      // valor padrão — de campo oculto ou não — preenche sozinho, e um item que
+      // só tem isso não foi preenchido por ninguém e não deve virar registro.
+      const foiPreenchido = visiveis.some((f) => !f.hidden && !f.readOnly && digitado(item[f.apiName]));
       if (!foiPreenchido) return;
       digitados += 1;
 
       const rotulo = `${lista.itemLabel ?? 'Item'} ${i + 1}`;
       for (const f of visiveis) {
         if (f.hidden || f.readOnly) continue;
-        const vazio = item[f.apiName] === undefined || item[f.apiName] === '';
-        if (vazio && isRequired(f, escopo)) problemasDeLista.push(`${lista.label} · ${rotulo}: ${f.label}`);
+        if (!digitado(item[f.apiName]) && isRequired(f, escopo)) problemasDeLista.push(`${lista.label} · ${rotulo}: ${f.label}`);
         if (f.validation && avaliarGrupo(f.validation, escopo, false)) {
           invalidosDeLista.push({ apiName: `${lista.id}[${i}].${f.apiName}`, message: `${rotulo}: ${f.validation.message}` });
         }
@@ -752,9 +754,19 @@ function montarItensDeLista(listas, values, objetoDoFormulario) {
   return { itens, problemasDeLista, invalidosDeLista };
 }
 
+/** Resposta de fato dada num item de lista: `false` e lista vazia não contam. */
+function digitado(v) {
+  if (Array.isArray(v)) return v.length > 0;
+  return v !== undefined && v !== null && v !== '' && v !== false;
+}
+
 /**
- * Os contratos escolhidos nas referências múltiplas visíveis, um vínculo por
- * contrato. Linha vazia é descartada em silêncio, como item de lista vazio.
+ * As escolhas das referências múltiplas visíveis, um vínculo por escolha.
+ * Linha vazia é descartada em silêncio, como item de lista vazio.
+ *
+ * Cada componente diz o próprio destino (`f.link`, lido da linha da definição):
+ * duas referências múltiplas no mesmo formulário podem criar objetos
+ * diferentes, com o Caso e o id externo em campos diferentes.
  */
 function montarVinculos(secoesSimples, values) {
   const vinculos = [];
@@ -769,13 +781,16 @@ function montarVinculos(secoesSimples, values) {
     // Repetido já é invalidez (ver `validar`); aqui só não vira dois registros.
     const escolhidos = [...new Set(escolhidosDe(f, values))];
     if (escolhidos.length === 0 && isRequired(f, values)) {
-      problemasDeVinculo.push(`${f.label} (nenhum contrato)`);
+      problemasDeVinculo.push(`${f.label} (nenhum ${f.reference?.object ?? 'registro'} escolhido)`);
     }
     for (const externalId of escolhidos) {
       vinculos.push({
         origem: f.apiName,
+        label: f.label,
         object: f.link.object,
         caseField: f.link.caseField,
+        externalIdField: f.link.externalIdField,
+        externalId,
         submissionField: f.link.submissionField,
         record: { [f.link.externalIdField]: externalId },
       });
@@ -800,7 +815,8 @@ const CAMPO_DO_ENVIO_PADRAO = 'RelatedCaseFormSubmission__c';
  *   1. o registro do formulário                         `refPai`
  *   2. a leitura do Caso que o trigger dele criou       `casoGerado`  (se precisar)
  *   3. um POST por item de lista                        `item1..N`
- *   4. um POST por contrato da referência múltipla      `vinculo1..N`
+ *   4. um POST por escolha de referência múltipla      `vinculo1..N`
+ *      (no objeto e nos campos que CADA componente declara)
  *
  * O registro do formulário não é o Caso: o Caso nasce no trigger after insert
  * do envio, na MESMA transação, com o Id do envio em `submissionField`
@@ -882,7 +898,7 @@ function descreverEtapas(subrequests, itens, vinculos) {
       return { ...base, nota: `o registro do formulário · ${Object.keys(s.body).length - 1} campo(s)` };
     }
     if (s.referenceId === REF_CASO) {
-      return { ...base, nota: 'o Caso que o trigger do envio criou; itens e contratos se ligam a ele' };
+      return { ...base, nota: 'o Caso que o trigger do envio criou; itens e vínculos se ligam a ele' };
     }
     const item = /^item(\d+)$/.exec(s.referenceId);
     if (item) {
@@ -898,7 +914,10 @@ function descreverEtapas(subrequests, itens, vinculos) {
     const vinc = /^vinculo(\d+)$/.exec(s.referenceId);
     if (vinc) {
       const v = vinculos[Number(vinc[1]) - 1];
-      return { ...base, nota: `contrato ${Object.values(v.record)[0]} ligado ao Caso` };
+      return {
+        ...base,
+        nota: `${v.label ?? 'referência múltipla'} · ${v.externalIdField} = ${v.externalId} · ${v.caseField} = id do Caso`,
+      };
     }
     return { ...base, nota: '' };
   });

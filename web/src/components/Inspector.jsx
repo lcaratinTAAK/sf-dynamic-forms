@@ -451,9 +451,9 @@ function CreateResult({ result, objeto }) {
         )}
         {result.vinculos?.length > 0 && (
           <div className="help">
-            {result.vinculos.length} {result.vinculos[0].object} criado(s) no Caso gerado:{' '}
-            {result.vinculos.map((v) => `${v.externalId} → ${v.id}`).join(' · ')}. O{' '}
-            <code>RelatedContract__c</code> é preenchido pelo trigger quando o id externo existe.
+            {result.vinculos.length} registro(s) de referência múltipla criado(s) no Caso gerado:{' '}
+            {result.vinculos.map((v) => `${v.object} ${v.externalId} → ${v.id}`).join(' · ')}. O lookup
+            de cada um é preenchido pelo trigger do objeto quando o id externo existe.
           </div>
         )}
       </div>

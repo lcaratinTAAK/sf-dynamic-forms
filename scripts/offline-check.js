@@ -142,9 +142,15 @@ rule();
 line('REFERÊNCIA MÚLTIPLA — FormDefinition__c → contrato → composite');
 rule();
 
-// Linhas sintéticas no formato da SOQL do adaptador: a raiz e um componente.
+// Linhas sintéticas no formato da SOQL do adaptador: a raiz e três componentes.
+// O destino de cada referência múltipla vem da PRÓPRIA linha (copiado do
+// FormBuilderAllowlist__mdt pelo Form Builder): objeto criado por escolha,
+// lookup do Caso e campo do id externo. Componentes diferentes, destinos
+// diferentes; linha antiga sem as colunas cai no legado CaseContract__c.
 const FORM_ID = 'a1Xbe000000MULTI';
 const MULTI_ID = 'a1Xbe000000MREF1';
+const MULTI_IMOVEL_ID = 'a1Xbe000000MREF2';
+const MULTI_LEGADO_ID = 'a1Xbe000000MREF3';
 const linhasMulti = [
   {
     Id: FORM_ID,
@@ -164,6 +170,33 @@ const linhasMulti = [
     Sort__c: 10,
     LabelOverride__c: 'Quais contratos?',
     IsRequired__c: true,
+    ReferenceType__c: 'CaseContract__c',
+    ReferenceObjectApiName__c: 'Contract',
+    ExternalIdFieldApiName__c: 'ExternalId__c',
+    ChildObjectApiName__c: 'CaseContract__c',
+    ChildCaseFieldApiName__c: 'Case__c',
+    FieldApiName__c: 'RelatedContractExternalId__c',
+  },
+  {
+    Id: MULTI_IMOVEL_ID,
+    Name: 'Imóveis',
+    RecordType: { DeveloperName: 'MultiReference' },
+    Form__c: FORM_ID,
+    Sort__c: 20,
+    ReferenceType__c: 'CaseProperty__c',
+    ReferenceObjectApiName__c: 'Property__c',
+    ExternalIdFieldApiName__c: 'PropertyCode__c',
+    ChildObjectApiName__c: 'CaseProperty__c',
+    ChildCaseFieldApiName__c: 'RelatedCase__c',
+    FieldApiName__c: 'PropertyExternalId__c',
+  },
+  {
+    // Salva antes do destino dinâmico: nenhuma das três colunas.
+    Id: MULTI_LEGADO_ID,
+    Name: 'Contratos (legado)',
+    RecordType: { DeveloperName: 'MultiReference' },
+    Form__c: FORM_ID,
+    Sort__c: 30,
     ReferenceType__c: 'CONTRACT',
     ReferenceObjectApiName__c: 'Contract',
     ExternalIdFieldApiName__c: 'ExternalId__c',
@@ -176,11 +209,30 @@ const contratoMulti = specToContract(linhasMulti, {
   picklists: null,
   rt: { Id: '012be000000RTXX', Name: 'Bank data change' },
 });
-const multi = contratoMulti.sections[0].fields[0];
+const [multi, multiImovel, multiLegado] = contratoMulti.sections[0].fields;
 assert.equal(multi.kind, 'multireference');
 assert.equal(multi.label, 'Quais contratos?');
-assert.equal(multi.link.object, 'CaseContract__c');
-line(`  componente      : ${multi.apiName} (${multi.kind}) → ${multi.link.object}`);
+assert.deepEqual(
+  { object: multi.link.object, caseField: multi.link.caseField, externalIdField: multi.link.externalIdField },
+  { object: 'CaseContract__c', caseField: 'Case__c', externalIdField: 'RelatedContractExternalId__c' }
+);
+assert.deepEqual(
+  { object: multiImovel.link.object, caseField: multiImovel.link.caseField, externalIdField: multiImovel.link.externalIdField },
+  { object: 'CaseProperty__c', caseField: 'RelatedCase__c', externalIdField: 'PropertyExternalId__c' },
+  'o destino vem da linha, não de constante'
+);
+assert.deepEqual(
+  { object: multiLegado.link.object, caseField: multiLegado.link.caseField, externalIdField: multiLegado.link.externalIdField },
+  { object: 'CaseContract__c', caseField: 'Case__c', externalIdField: 'RelatedContractExternalId__c' },
+  'linha sem as colunas cai no legado'
+);
+assert.ok(
+  contratoMulti.diagnostics.warnings.some((w) => w.includes('Contratos (legado)')),
+  'linha legada gera aviso'
+);
+for (const m of [multi, multiImovel, multiLegado]) {
+  line(`  componente      : ${m.apiName} (${m.kind}) → ${m.link.object}.${m.link.caseField} + ${m.link.externalIdField}`);
+}
 
 const chave = multi.apiName;
 
@@ -192,19 +244,137 @@ const repetido = buildSubmitPayload(contratoMulti, { [chave]: ['ctr_1', 'ctr_1']
 assert.equal(repetido.valid, false, 'contrato repetido não envia');
 line(`  repetido        → válido? ${repetido.valid}   ${repetido.invalid.map((e) => e.message).join('; ')}`);
 
-const doisContratos = buildSubmitPayload(contratoMulti, { [chave]: ['ctr_1', '', ' ctr_2 '] });
+const doisContratos = buildSubmitPayload(contratoMulti, {
+  [chave]: ['ctr_1', '', ' ctr_2 '],
+  [multiImovel.apiName]: ['imv_7'],
+  [multiLegado.apiName]: ['ctr_9'],
+});
 assert.equal(doisContratos.valid, true);
-assert.equal(doisContratos.vinculos.length, 2, 'linha vazia não vira vínculo');
+assert.equal(doisContratos.vinculos.length, 4, 'linha vazia não vira vínculo');
 const subs = doisContratos.request.body.compositeRequest;
 assert.deepEqual(
   subs.map((s) => s.referenceId),
-  ['refPai', 'casoGerado', 'vinculo1', 'vinculo2']
+  ['refPai', 'casoGerado', 'vinculo1', 'vinculo2', 'vinculo3', 'vinculo4']
 );
-assert.equal(subs[2].body.Case__c, '@{casoGerado.records[0].Id}');
+assert.match(subs[1].url, /WHERE\+RelatedCaseFormSubmission__c='@\{refPai\.id\}'/, 'GET do Caso pelo envio');
+assert.equal(subs.filter((s) => s.method === 'GET').length, 1, 'uma consulta do Caso para todos os vínculos');
+// Um POST por escolha, cada um no objeto e nos campos do SEU componente.
+assert.ok(subs.slice(2).every((s) => s.method === 'POST' && !s.url.includes('composite/sobjects')));
+assert.match(subs[2].url, /\/sobjects\/CaseContract__c$/);
+assert.deepEqual(subs[2].body, { RelatedContractExternalId__c: 'ctr_1', Case__c: '@{casoGerado.records[0].Id}' });
 assert.equal(subs[3].body.RelatedContractExternalId__c, 'ctr_2');
+assert.match(subs[4].url, /\/sobjects\/CaseProperty__c$/);
+assert.deepEqual(subs[4].body, { PropertyExternalId__c: 'imv_7', RelatedCase__c: '@{casoGerado.records[0].Id}' });
+assert.match(subs[5].url, /\/sobjects\/CaseContract__c$/);
+assert.deepEqual(subs[5].body, { RelatedContractExternalId__c: 'ctr_9', Case__c: '@{casoGerado.records[0].Id}' });
 assert.equal(subs[0].body[chave], undefined, 'nada da referência múltipla no registro do formulário');
+assert.equal(subs[0].body.RelatedContractExternalId__c, undefined, 'FieldApiName__c da multi não é campo do formulário');
 line('  dois contratos  → composite:');
 line(JSON.stringify(doisContratos.request, null, 2).split('\n').map((l) => '    ' + l).join('\n'));
+
+// ---------------------------------------------------------------------------
+line();
+rule();
+line('CHOICES__C E LISTA REPETÍVEL — FormDefinition__c → contrato → envio');
+rule();
+
+const FORM_LISTA = 'a1Xbe000000LISTA';
+const LISTA_ID = 'a1Xbe000000LIST1';
+const linhasLista = [
+  {
+    Id: FORM_LISTA,
+    Name: 'teste_lista',
+    RecordType: { DeveloperName: 'Form' },
+    ObjectApiName__c: 'CaseFormSubmission__c',
+    TargetRecordTypeDevName__c: 'BankDataChange',
+  },
+  {
+    // Campo texto com opções: "a,b,c", como o FormDefinitionController grava.
+    Id: 'a1Xbe000000CHOI1',
+    Name: 'Motivo',
+    RecordType: { DeveloperName: 'Field' },
+    Form__c: FORM_LISTA,
+    Sort__c: 10,
+    FieldApiName__c: 'Reason__c',
+    Choices__c: 'Adicionar pessoa, Despesas condominio,,Outro',
+    IsRequired__c: true,
+  },
+  {
+    Id: LISTA_ID,
+    Name: 'Pessoas',
+    RecordType: { DeveloperName: 'RepeatingSection' },
+    Form__c: FORM_LISTA,
+    Sort__c: 20,
+    ChildObjectApiName__c: 'CaseFormSubmissionItem__c',
+    ChildRecordTypeDevName__c: 'Person',
+    ChildCaseFieldApiName__c: 'Case__c',
+    ChildListFieldApiName__c: 'FormList__c',
+    ItemLabel__c: 'Pessoa',
+  },
+  {
+    Id: 'a1Xbe000000LFLD1',
+    Name: 'Nome',
+    RecordType: { DeveloperName: 'Field' },
+    Form__c: FORM_LISTA,
+    Parent__c: LISTA_ID,
+    Sort__c: 1,
+    FieldApiName__c: 'Name__c',
+  },
+  {
+    // Visível, com valor padrão: sozinho não faz um item contar.
+    Id: 'a1Xbe000000LFLD2',
+    Name: 'Papel',
+    RecordType: { DeveloperName: 'Field' },
+    Form__c: FORM_LISTA,
+    Parent__c: LISTA_ID,
+    Sort__c: 2,
+    FieldApiName__c: 'Role__c',
+    DefaultValue__c: 'Titular',
+  },
+];
+const contratoLista = specToContract(linhasLista, {
+  formId: FORM_LISTA,
+  objectApiName: 'CaseFormSubmission__c',
+  indiceDeCampos: {},
+  picklists: null,
+  rt: { Id: '012be000000RTXX', Name: 'Bank data change' },
+  listas: {
+    CaseFormSubmissionItem__c: {
+      indiceDeCampos: {},
+      controladorDe: {},
+      recordTypes: { Person: { Id: '012be000000RTPP', DeveloperName: 'Person' } },
+      picklists: {},
+    },
+  },
+});
+const motivo = contratoLista.sections[0].fields[0];
+assert.equal(motivo.dataType, 'Picklist', 'texto com Choices__c vira lista de escolha');
+assert.deepEqual(
+  motivo.options.map((o) => o.value),
+  ['Adicionar pessoa', 'Despesas condominio', 'Outro'],
+  'dividido na vírgula, sem espaço nas pontas e sem vazio'
+);
+line(`  Choices__c      : ${motivo.apiName} → ${motivo.options.map((o) => o.value).join(' | ')}`);
+
+const comLista = buildSubmitPayload(contratoLista, {
+  Reason__c: 'Outro',
+  __listas: { [LISTA_ID]: [{ Name__c: 'Maria' }, {}, { Role__c: '' }] },
+});
+assert.equal(comLista.valid, true, comLista.missing.join(', '));
+assert.equal(comLista.listas.length, 1, 'item só com valor padrão não vira registro');
+const subsLista = comLista.request.body.compositeRequest;
+assert.deepEqual(subsLista.map((s) => s.referenceId), ['refPai', 'casoGerado', 'item1']);
+assert.equal(subsLista[0].body.Reason__c, 'Outro', 'a escolha vai como texto no campo');
+assert.match(subsLista[2].url, /\/sobjects\/CaseFormSubmissionItem__c$/);
+assert.deepEqual(subsLista[2].body, {
+  RecordTypeId: '012be000000RTPP',
+  Name__c: 'Maria',
+  Role__c: 'Titular',
+  FormList__c: LISTA_ID,
+  Case__c: '@{casoGerado.records[0].Id}',
+});
+line('  lista           → composite:');
+line(JSON.stringify(comLista.request, null, 2).split('\n').map((l) => '    ' + l).join('\n'));
 
 line();
 rule();

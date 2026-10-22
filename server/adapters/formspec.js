@@ -14,8 +14,9 @@
  *   Section     agrupamento, com visibilidade própria
  *   Field       campo, vinculado a um campo do SObject
  *   Reference   campo em que o usuário escolhe UM registro (vai como texto)
- *   MultiReference  o usuário escolhe VÁRIOS contratos; cada um vira um
- *               CaseContract__c ligado ao Caso gerado, nada no registro
+ *   MultiReference  o usuário escolhe VÁRIOS registros; cada um vira um
+ *               registro de ChildObjectApiName__c (ex.: CaseContract__c)
+ *               ligado ao Caso gerado, nada no registro do formulário
  *   Attachment  documento exigido, tratado como componente
  *   Rule        regra de visibilidade, filha do componente que afeta
  *   Content     bloco de texto estático
@@ -52,18 +53,42 @@ import { config } from '../config.js';
 const OBJ = config.formsObject || 'FormDefinition__c';
 
 /**
- * Para onde vai cada contrato de uma referência múltipla. Fixo, como no
- * Salesforce: o Form Builder só aceita `Contract` nesse componente, e o
- * vínculo é sempre `CaseContract__c`. O trigger dele resolve o id externo no
- * lookup `RelatedContract__c`.
+ * Para onde vão as escolhas de uma referência múltipla quando a linha NÃO diz.
+ *
+ * Hoje cada componente MultiReference carrega o próprio destino, copiado da
+ * entrada da categoria `MultiReference` do FormBuilderAllowlist__mdt quando o
+ * Form Builder salva (ver `vinculoDe`). Linhas salvas antes disso não têm
+ * essas colunas — e eram sempre os contratos do Caso: `CaseContract__c`, com o
+ * id externo em `RelatedContractExternalId__c`, que o trigger resolve no
+ * lookup `RelatedContract__c`. Mesmo fallback do formRunner (`linkOf`).
  */
-const VINCULO_CONTRATO = Object.freeze({
+const VINCULO_LEGADO = Object.freeze({
   object: 'CaseContract__c',
   caseField: 'Case__c',
   externalIdField: 'RelatedContractExternalId__c',
-  // O lookup do Caso que aponta para o envio — o mesmo caminho do SLA.
-  submissionField: config.slaSubmissionField,
 });
+
+/** O lookup do Caso que aponta para o envio — o mesmo caminho do SLA. */
+const CAMPO_DO_ENVIO = config.slaSubmissionField;
+
+/**
+ * O destino de UMA referência múltipla, lido da própria linha:
+ *
+ *   ChildObjectApiName__c     objeto criado por escolha      (CaseContract__c)
+ *   ChildCaseFieldApiName__c  lookup que recebe o Id do Caso (Case__c)
+ *   FieldApiName__c           campo que recebe o id externo  (RelatedContractExternalId__c)
+ *
+ * Componentes diferentes podem apontar para objetos e campos diferentes. Coluna
+ * vazia cai no destino legado, coluna a coluna, como no formRunner.
+ */
+function vinculoDe(r) {
+  return {
+    object: r.ChildObjectApiName__c || VINCULO_LEGADO.object,
+    caseField: r.ChildCaseFieldApiName__c || VINCULO_LEGADO.caseField,
+    externalIdField: r.FieldApiName__c || VINCULO_LEGADO.externalIdField,
+    submissionField: CAMPO_DO_ENVIO,
+  };
+}
 
 const CAMPOS = `Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c, Width__c,
   ObjectApiName__c, TargetRecordTypeDevName__c,
@@ -575,9 +600,18 @@ export function specToContract(
     }
 
     if (t === 'MultiReference') {
-      // Sem FieldApiName__c: as escolhas não vão no registro do formulário.
-      // O apiName é só a chave da resposta em `values` — o Id da linha, para
-      // duas referências múltiplas no mesmo formulário não colidirem.
+      // FieldApiName__c aqui é campo do objeto do VÍNCULO, não do formulário:
+      // as escolhas não vão no registro do formulário. O apiName é só a chave
+      // da resposta em `values` — o Id da linha, para duas referências
+      // múltiplas no mesmo formulário não colidirem.
+      if (!r.ChildObjectApiName__c || !r.ChildCaseFieldApiName__c || !r.FieldApiName__c) {
+        contract.diagnostics.warnings.push(
+          `"${r.LabelOverride__c || r.Name}" é referência múltipla salva sem destino completo ` +
+            '(ChildObjectApiName__c / ChildCaseFieldApiName__c / FieldApiName__c); ' +
+            `o que falta usa o legado ${VINCULO_LEGADO.object}.${VINCULO_LEGADO.caseField} / ` +
+            `${VINCULO_LEGADO.externalIdField}. Salvar de novo no Form Builder grava o destino.`
+        );
+      }
       return {
         kind: 'multireference',
         apiName: `__multiref_${r.Id}`,
@@ -590,7 +624,9 @@ export function specToContract(
           object: r.ReferenceObjectApiName__c ?? null,
           externalIdField: r.ExternalIdFieldApiName__c ?? null,
         },
-        link: VINCULO_CONTRATO,
+        // Para onde vai cada escolha: um registro de `link.object`, com o Id do
+        // Caso em `link.caseField` e o id externo em `link.externalIdField`.
+        link: vinculoDe(r),
         width: r.Width__c ?? 'FULL',
         visibility: visibilidadeDe(r),
         requiredWhen: obrigatoriedadeDe(r),
@@ -714,7 +750,7 @@ export function specToContract(
         caseField: filho.ChildCaseFieldApiName__c ?? null,
         listField: filho.ChildListFieldApiName__c ?? null,
         childRelationshipField: filho.ChildRelationshipField__c ?? null,
-        submissionField: VINCULO_CONTRATO.submissionField,
+        submissionField: CAMPO_DO_ENVIO,
         // Valores que o Salesforce aplica sozinho em cada item que chega com o
         // Id da lista — só para exibição; nada disso vai no envio.
         listDefaults: linhas

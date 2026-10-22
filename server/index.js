@@ -463,17 +463,21 @@ app.post('/api/create-record', async (req, res) => {
       // casoGerado.records[0].Id": o sintoma. A causa é o envio não ter
       // gerado Caso, e é isso que vale dizer.
       const semCaso = (ehVinculo || ehItem) && /casoGerado/.test(erro?.message ?? '');
+      // Cada referência múltipla cria o próprio objeto: diz qual falhou.
+      const vinculoQueFalhou = ehVinculo
+        ? payload.vinculos?.[Number(/\d+$/.exec(falhou.referenceId)[0]) - 1]
+        : null;
       return res.status(422).json({
         ok: false,
         error: semCaso
-          ? `O envio não gerou Caso, então não há onde ligar ${ehItem ? 'os itens da lista' : 'os contratos'}. O caso auxiliar está ligado para este formulário (flag eng_rls_case_form_submission_aux e CreateAuxiliaryCase__c)? Nada foi criado.`
+          ? `O envio não gerou Caso, então não há onde ligar ${ehItem ? 'os itens da lista' : 'as escolhas da referência múltipla'}. O caso auxiliar está ligado para este formulário (flag eng_rls_case_form_submission_aux e CreateAuxiliaryCase__c)? Nada foi criado.`
           : erro?.message || 'O Salesforce recusou a criação.',
         errorCode: erro?.errorCode ?? null,
         fields: erro?.fields ?? [],
         onde: ehPai
           ? contract.object
           : ehVinculo
-            ? `vínculo de contrato (${falhou.referenceId})`
+            ? `vínculo de referência múltipla (${falhou.referenceId}${vinculoQueFalhou ? ` · ${vinculoQueFalhou.object}` : ''})`
             : `item da lista (${falhou.referenceId})`,
         composite,
       });
@@ -492,7 +496,7 @@ app.post('/api/create-record', async (req, res) => {
         const v = payload.vinculos?.[i];
         return {
           object: v?.object ?? null,
-          externalId: v ? Object.values(v.record)[0] : null,
+          externalId: v?.externalId ?? (v ? Object.values(v.record)[0] : null),
           id: r.body?.id ?? null,
         };
       }),
