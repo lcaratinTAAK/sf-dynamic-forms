@@ -1651,7 +1651,7 @@
                 }
               ]
             },
-            "description": "Componentes em que o usuário escolhe VÁRIOS registros de `ReferenceObjectApiName__c` (por `ExternalIdFieldApiName__c`). Nada vai no registro do formulário: cada escolha vira um registro de `ChildObjectApiName__c` (ex.: `CaseContract__c`), com o Id do Caso gerado em `ChildCaseFieldApiName__c` (ex.: `Case__c`) e o id externo em `FieldApiName__c` (ex.: `RelatedContractExternalId__c`). Os três vêm da categoria `MultiReference` do `FormBuilderAllowlist__mdt` quando o Form Builder salva; linha antiga sem eles é `CaseContract__c` / `Case__c` / `RelatedContractExternalId__c`."
+            "description": "Componentes em que o usuário escolhe VÁRIOS registros de `ReferenceObjectApiName__c` (ex.: `Contract`, por `ExternalIdFieldApiName__c`); `ReferenceType__c` traz a entidade (`CONTRACT`, `PROPERTY`), que diz ao front qual seletor abrir. Nada vai no registro do formulário: cada escolha vira um registro de `ChildObjectApiName__c` (ex.: `CaseContract__c`), com o Id do Caso gerado em `ChildCaseFieldApiName__c` (ex.: `Case__c`) e o id externo em `FieldApiName__c` (ex.: `RelatedContractExternalId__c`). Os três vêm da categoria `MultiReference` do `FormBuilderAllowlist__mdt` quando o Form Builder salva; linha antiga sem eles é `CaseContract__c` / `Case__c` / `RelatedContractExternalId__c`."
           },
           "event": [
             {
