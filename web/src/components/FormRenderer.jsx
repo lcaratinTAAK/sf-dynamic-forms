@@ -121,13 +121,12 @@ function BlocoConteudo({ html }) {
  * sugestões vêm da org pelo BFF; digitar um id externo à mão continua valendo,
  * como no campo de referência simples.
  */
-function ReferenciaMultipla({ item, values, onChange, erro }) {
-  const brutos = Array.isArray(values[item.apiName]) ? values[item.apiName] : [];
-  // Nunca zero linhas: sempre há onde digitar a primeira escolha.
-  const linhas = brutos.length ? brutos : [''];
-  const obrigatorio = isRequired(item, values);
-
-  const [termo, setTermo] = useState('');
+/**
+ * Uma linha da referência múltipla. A busca e o datalist são DA LINHA: com um
+ * termo só para o componente, escolher um registro na primeira linha deixava a
+ * lista filtrada por ele, e as linhas novas (vazias) não tinham o que sugerir.
+ */
+function LinhaReferencia({ item, indice, valor, onValor, onRemover }) {
   const [sugestoes, setSugestoes] = useState([]);
   const [falhaBusca, setFalhaBusca] = useState(null);
   const { object, externalIdField } = item.reference ?? {};
@@ -138,7 +137,7 @@ function ReferenciaMultipla({ item, values, onChange, erro }) {
     let vivo = true;
     const t = setTimeout(() => {
       api
-        .getReferences({ object, externalIdField, term: termo })
+        .getReferences({ object, externalIdField, term: valor })
         .then((r) => {
           if (!vivo) return;
           setSugestoes(r.records);
@@ -150,10 +149,50 @@ function ReferenciaMultipla({ item, values, onChange, erro }) {
       vivo = false;
       clearTimeout(t);
     };
-  }, [object, externalIdField, termo]);
+  }, [object, externalIdField, valor]);
+
+  const listaId = `sugestoes-${item.apiName}-${indice}`;
+
+  return (
+    <>
+      <div className="multiref-linha">
+        <input
+          type="text"
+          list={listaId}
+          value={valor}
+          placeholder={item.placeholder || `id externo do ${object ?? 'registro'}`}
+          onChange={(e) => onValor(e.target.value)}
+        />
+        <button
+          type="button"
+          className="multiref-remover"
+          onClick={onRemover}
+          aria-label={`Excluir linha ${indice + 1}`}
+          title="Excluir linha"
+        >
+          🗑
+        </button>
+      </div>
+      <datalist id={listaId}>
+        {sugestoes.map((s) => (
+          <option key={s.id} value={s.externalId}>
+            {s.name ?? s.externalId}
+          </option>
+        ))}
+      </datalist>
+      {falhaBusca && <span className="help">sem sugestões ({falhaBusca}); digite o id externo</span>}
+    </>
+  );
+}
+
+function ReferenciaMultipla({ item, values, onChange, erro }) {
+  const brutos = Array.isArray(values[item.apiName]) ? values[item.apiName] : [];
+  // Nunca zero linhas: sempre há onde digitar a primeira escolha.
+  const linhas = brutos.length ? brutos : [''];
+  const obrigatorio = isRequired(item, values);
+  const { object, externalIdField } = item.reference ?? {};
 
   const gravar = (novas) => onChange(item.apiName, novas);
-  const listaId = `sugestoes-${item.apiName}`;
 
   return (
     <div className={`field multiref is-wide${erro ? ' is-invalid' : ''}`}>
@@ -167,36 +206,15 @@ function ReferenciaMultipla({ item, values, onChange, erro }) {
       </label>
 
       {linhas.map((valor, i) => (
-        <div className="multiref-linha" key={i}>
-          <input
-            type="text"
-            list={listaId}
-            value={valor}
-            placeholder={item.placeholder || `id externo do ${object ?? 'registro'}`}
-            onChange={(e) => {
-              setTermo(e.target.value);
-              gravar(linhas.map((v, j) => (j === i ? e.target.value : v)));
-            }}
-          />
-          <button
-            type="button"
-            className="multiref-remover"
-            onClick={() => gravar(linhas.filter((_, j) => j !== i))}
-            aria-label={`Excluir linha ${i + 1}`}
-            title="Excluir linha"
-          >
-            🗑
-          </button>
-        </div>
+        <LinhaReferencia
+          key={i}
+          item={item}
+          indice={i}
+          valor={valor}
+          onValor={(novo) => gravar(linhas.map((v, j) => (j === i ? novo : v)))}
+          onRemover={() => gravar(linhas.filter((_, j) => j !== i))}
+        />
       ))}
-
-      <datalist id={listaId}>
-        {sugestoes.map((s) => (
-          <option key={s.id} value={s.externalId}>
-            {s.name ?? s.externalId}
-          </option>
-        ))}
-      </datalist>
 
       <button type="button" className="btn ghost small btn-lista" onClick={() => gravar([...linhas, ''])}>
         + Nova linha
@@ -211,7 +229,6 @@ function ReferenciaMultipla({ item, values, onChange, erro }) {
             <code>{item.link.caseField} = id do Caso</code> e <code>{item.link.externalIdField} = id externo</code>
           </>
         )}
-        {falhaBusca ? ` · sem sugestões (${falhaBusca}); digite o id externo` : ''}
       </span>
       {erro && <span className="erro-validacao">{erro}</span>}
     </div>
