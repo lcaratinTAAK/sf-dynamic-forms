@@ -24,7 +24,7 @@ import {
   buscarSla,
   buscarReferencias,
 } from './salesforce.js';
-import { buildSubmitPayload, indexarCampos } from './contract.js';
+import { buildSubmitPayload, indexarCampos, REF_REGISTROS } from './contract.js';
 import * as uiapi from './adapters/uiapi.js';
 import * as uiapiV2 from './adapters/uiapi-v2.js';
 import * as screenflow from './adapters/screenflow.js';
@@ -444,41 +444,57 @@ app.post('/api/create-record', async (req, res) => {
     const respostas = composite.compositeResponse ?? [];
     const criacao = respostas[0];
     const leitura = respostas[respostas.length - 1];
-    // Pelo referenceId, e não pela posição: entre os itens e a leitura final
-    // agora podem vir a consulta do Caso e os vínculos.
-    const filhos = respostas.filter((r) => /^item\d+$/.test(r?.referenceId ?? ''));
-    const vinculos = respostas.filter((r) => /^vinculo\d+$/.test(r?.referenceId ?? ''));
+    // Itens de lista e escolhas de referência múltipla vêm numa coleção só: a
+    // resposta é um array na ordem dos registros, os itens primeiro.
+    const colecao = respostas.find((r) => r?.referenceId === REF_REGISTROS);
+    const resultados = Array.isArray(colecao?.body) ? colecao.body : [];
+    const nItens = payload.listas?.length ?? 0;
+    const filhos = resultados.slice(0, nItens);
+    const vinculos = resultados.slice(nItens);
+
+    // Registro da coleção que falhou de verdade. Com allOrNone, os outros vêm
+    // como ALL_OR_NONE_OPERATION_ROLLED_BACK (sintoma) e o envio como
+    // PROCESSING_HALTED: a causa é o registro que tem outro erro.
+    const naoEhRollback = (r) =>
+      r && r.success === false && !(r.errors ?? []).every((e) => e.statusCode === 'ALL_OR_NONE_OPERATION_ROLLED_BACK');
+    const posicao = resultados.findIndex(naoEhRollback);
+    if (posicao >= 0) {
+      const erro = resultados[posicao].errors?.[0];
+      const ehItem = posicao < nItens;
+      const alvo = ehItem ? payload.listas?.[posicao] : payload.vinculos?.[posicao - nItens];
+      return res.status(422).json({
+        ok: false,
+        error: erro?.message || 'O Salesforce recusou um dos registros.',
+        errorCode: erro?.statusCode ?? null,
+        fields: erro?.fields ?? [],
+        onde: ehItem
+          ? `item da lista (${alvo?.listaLabel ?? alvo?.object ?? 'registro ' + (posicao + 1)})`
+          : `vínculo de referência múltipla (${alvo?.object ?? 'registro ' + (posicao + 1)})`,
+        composite,
+      });
+    }
 
     // Composite devolve 200 no envelope mesmo quando um subrequest falha. E
-    // quando o PAI falha, os filhos reportam "Could not find the referenced
+    // quando o PAI falha, os seguintes reportam "Could not find the referenced
     // operation refPai" — que é sintoma, não causa. Por isso o erro do pai vem
-    // primeiro, e o dos filhos só se ele tiver passado.
+    // primeiro, e o dos outros só se ele tiver passado.
     const falhou = respostas.find((r) => r && r.httpStatusCode >= 300);
     if (falhou) {
       const ehPai = falhou === criacao;
-      const ehVinculo = /^vinculo\d+$/.test(falhou.referenceId ?? '');
-      const ehItem = /^item\d+$/.test(falhou.referenceId ?? '');
+      const ehColecao = falhou.referenceId === REF_REGISTROS;
       const erro = Array.isArray(falhou.body) ? falhou.body[0] : falhou.body;
-      // Consulta do Caso vazia faz o item ou o vínculo falhar com "No value for
+      // Consulta do Caso vazia faz a coleção falhar com "No value for
       // casoGerado.records[0].Id": o sintoma. A causa é o envio não ter
       // gerado Caso, e é isso que vale dizer.
-      const semCaso = (ehVinculo || ehItem) && /casoGerado/.test(erro?.message ?? '');
-      // Cada referência múltipla cria o próprio objeto: diz qual falhou.
-      const vinculoQueFalhou = ehVinculo
-        ? payload.vinculos?.[Number(/\d+$/.exec(falhou.referenceId)[0]) - 1]
-        : null;
+      const semCaso = ehColecao && /casoGerado/.test(erro?.message ?? '');
       return res.status(422).json({
         ok: false,
         error: semCaso
-          ? `O envio não gerou Caso, então não há onde ligar ${ehItem ? 'os itens da lista' : 'as escolhas da referência múltipla'}. O caso auxiliar está ligado para este formulário (flag eng_rls_case_form_submission_aux e CreateAuxiliaryCase__c)? Nada foi criado.`
+          ? 'O envio não gerou Caso, então não há onde ligar os itens da lista e as escolhas da referência múltipla. O caso auxiliar está ligado para este formulário (flag eng_rls_case_form_submission_aux e CreateAuxiliaryCase__c)? Nada foi criado.'
           : erro?.message || 'O Salesforce recusou a criação.',
         errorCode: erro?.errorCode ?? null,
         fields: erro?.fields ?? [],
-        onde: ehPai
-          ? contract.object
-          : ehVinculo
-            ? `vínculo de referência múltipla (${falhou.referenceId}${vinculoQueFalhou ? ` · ${vinculoQueFalhou.object}` : ''})`
-            : `item da lista (${falhou.referenceId})`,
+        onde: ehPai ? contract.object : ehColecao ? 'itens de lista e vínculos (composite/sobjects)' : falhou.referenceId,
         composite,
       });
     }
@@ -490,14 +506,14 @@ app.post('/api/create-record', async (req, res) => {
       filhos: filhos.map((f, i) => ({
         object: payload.listas?.[i]?.object ?? null,
         lista: payload.listas?.[i]?.listaLabel ?? null,
-        id: f.body?.id ?? null,
+        id: f?.id ?? null,
       })),
       vinculos: vinculos.map((r, i) => {
         const v = payload.vinculos?.[i];
         return {
           object: v?.object ?? null,
           externalId: v?.externalId ?? (v ? Object.values(v.record)[0] : null),
-          id: r.body?.id ?? null,
+          id: r?.id ?? null,
         };
       }),
       attachmentsNote: Array.isArray(values.__attachments) && values.__attachments.length

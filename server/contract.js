@@ -806,6 +806,9 @@ export const REF_PAI = 'refPai';
 /** referenceId da consulta que acha o Caso gerado pelo envio. */
 export const REF_CASO = 'casoGerado';
 
+/** referenceId da coleção com os itens de lista e as escolhas de referência múltipla. */
+export const REF_REGISTROS = 'registros';
+
 /** O lookup do Caso que aponta para o envio, quando o contrato não disser outro. */
 const CAMPO_DO_ENVIO_PADRAO = 'RelatedCaseFormSubmission__c';
 
@@ -814,9 +817,10 @@ const CAMPO_DO_ENVIO_PADRAO = 'RelatedCaseFormSubmission__c';
  *
  *   1. o registro do formulário                         `refPai`
  *   2. a leitura do Caso que o trigger dele criou       `casoGerado`  (se precisar)
- *   3. um POST por item de lista                        `item1..N`
- *   4. um POST por escolha de referência múltipla      `vinculo1..N`
- *      (no objeto e nos campos que CADA componente declara)
+ *   3. UMA chamada `composite/sobjects` com todos os    `registros`
+ *      itens de lista e todas as escolhas de referência
+ *      múltipla (cada um no objeto e nos campos que o seu
+ *      componente declara; os itens primeiro, na ordem)
  *
  * O registro do formulário não é o Caso: o Caso nasce no trigger after insert
  * do envio, na MESMA transação, com o Id do envio em `submissionField`
@@ -830,10 +834,12 @@ const CAMPO_DO_ENVIO_PADRAO = 'RelatedCaseFormSubmission__c';
  * valores padrão daquela lista). Lista sem `caseField` cai no modelo antigo: o
  * item aponta direto para o registro, por `relationshipField`.
  *
- * Uma subrequisição por registro, e não um `composite/sobjects` com a lista: a
- * coleção reporta a falha de cada registro DENTRO de uma resposta 200, e o
- * `allOrNone` de fora decide pelo status da subrequisição. Com um POST por
- * registro, a falha é um 400 e a transação inteira volta, envio incluído.
+ * Uma coleção só, e não um POST por registro: até 200 registros, de objetos
+ * diferentes, cada um com o seu `attributes.type`, numa subrequisição. Com
+ * `allOrNone: true` na coleção, um registro que falha derruba a transação
+ * inteira, envio incluído (conferido numa scratch: o POST do envio voltou
+ * PROCESSING_HALTED e nada ficou gravado). A resposta é um array na mesma
+ * ordem dos registros: o Id do item N é `@{registros[N].id}`.
  *
  * A referência dentro da URL vai crua, sem encode — encodada, a consulta
  * devolve 200 com zero registros (ver `schemaEFormulario`).
@@ -856,29 +862,30 @@ export function compositeDoEnvio(objetoPai, record, itens = [], vinculos = [], v
     idDoCaso = `@{${REF_CASO}.records[0].Id}`;
   }
 
-  itens.forEach((item, i) => {
-    const body = {};
-    if (item.recordTypeId) body.RecordTypeId = item.recordTypeId;
-    Object.assign(body, item.record);
-    if (item.listField) body[item.listField] = item.secaoId;
-    if (item.caseField) body[item.caseField] = idDoCaso;
-    else if (item.relationshipField) body[item.relationshipField] = `@{${REF_PAI}.id}`;
+  const registros = [
+    ...itens.map((item) => {
+      const registro = { attributes: { type: item.object } };
+      if (item.recordTypeId) registro.RecordTypeId = item.recordTypeId;
+      Object.assign(registro, item.record);
+      if (item.listField) registro[item.listField] = item.secaoId;
+      if (item.caseField) registro[item.caseField] = idDoCaso;
+      else if (item.relationshipField) registro[item.relationshipField] = `@{${REF_PAI}.id}`;
+      return registro;
+    }),
+    ...vinculos.map((v) => ({
+      attributes: { type: v.object },
+      ...v.record,
+      [v.caseField]: idDoCaso,
+    })),
+  ];
+  if (registros.length) {
     subrequests.push({
-      referenceId: `item${i + 1}`,
+      referenceId: REF_REGISTROS,
       method: 'POST',
-      url: `/services/data/${versao}/sobjects/${item.object}`,
-      body,
+      url: `/services/data/${versao}/composite/sobjects`,
+      body: { allOrNone: true, records: registros },
     });
-  });
-
-  vinculos.forEach((v, i) => {
-    subrequests.push({
-      referenceId: `vinculo${i + 1}`,
-      method: 'POST',
-      url: `/services/data/${versao}/sobjects/${v.object}`,
-      body: { ...v.record, [v.caseField]: idDoCaso },
-    });
-  });
+  }
 
   return subrequests;
 }
@@ -900,23 +907,20 @@ function descreverEtapas(subrequests, itens, vinculos) {
     if (s.referenceId === REF_CASO) {
       return { ...base, nota: 'o Caso que o trigger do envio criou; itens e vínculos se ligam a ele' };
     }
-    const item = /^item(\d+)$/.exec(s.referenceId);
-    if (item) {
-      const it = itens[Number(item[1]) - 1];
-      porLista[it.secaoId] = (porLista[it.secaoId] ?? 0) + 1;
-      const partes = [`${it.listaLabel}, item ${porLista[it.secaoId]}`];
-      if (it.recordTypeId) partes.push(`RecordTypeId = ${it.recordTypeDevName ?? it.recordTypeId}`);
-      if (it.caseField) partes.push(`${it.caseField} = id do Caso`);
-      else if (it.relationshipField) partes.push(`${it.relationshipField} = id do registro`);
-      if (it.listField) partes.push(`${it.listField} = id da lista`);
-      return { ...base, nota: partes.join(' · ') };
-    }
-    const vinc = /^vinculo(\d+)$/.exec(s.referenceId);
-    if (vinc) {
-      const v = vinculos[Number(vinc[1]) - 1];
+    if (s.referenceId === REF_REGISTROS) {
+      // Uma linha para a coleção inteira: quantos de cada lista e de cada
+      // referência múltipla, e como cada um se liga ao Caso.
+      for (const it of itens) porLista[it.listaLabel] = (porLista[it.listaLabel] ?? 0) + 1;
+      const porObjeto = {};
+      for (const v of vinculos) porObjeto[v.object] = (porObjeto[v.object] ?? 0) + 1;
+      const partes = [
+        ...Object.entries(porLista).map(([lista, n]) => `${n} item(ns) de ${lista}`),
+        ...Object.entries(porObjeto).map(([objeto, n]) => `${n} ${objeto} (referência múltipla)`),
+      ];
       return {
         ...base,
-        nota: `${v.label ?? 'referência múltipla'} · ${v.externalIdField} = ${v.externalId} · ${v.caseField} = id do Caso`,
+        alvo: 'composite/sobjects',
+        nota: `${s.body.records.length} registro(s) numa chamada só: ${partes.join(' · ')}`,
       };
     }
     return { ...base, nota: '' };

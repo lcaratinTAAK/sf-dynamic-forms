@@ -534,23 +534,27 @@
                   "// O erro que o composite exibe quase nunca é o erro.",
                   "// Pai falhou  -> cada filho reporta 'Could not find the referenced operation'.",
                   "// Filho falhou -> o pai reporta PROCESSING_HALTED.",
-                  "// Os dois são SINTOMA. A causa é a subrequisição cujo código não é nenhum desses.",
-                  "const SINTOMAS = ['PROCESSING_HALTED'];",
+                  "// A coleção 'registros' volta 200 mesmo quando um registro falha: cada posição",
+                  "// traz success/errors, e as que não falharam reportam ALL_OR_NONE_OPERATION_ROLLED_BACK.",
+                  "// Tudo isso é SINTOMA. A causa é o que não é nenhum desses.",
+                  "const SINTOMAS = ['PROCESSING_HALTED', 'ALL_OR_NONE_OPERATION_ROLLED_BACK'];",
+                  "const sintoma = (e) => SINTOMAS.includes(e?.errorCode || e?.statusCode || '') || (e?.message || '').includes('referenced operation');",
+                  "const registros = partes.find((p) => p.referenceId === 'registros');",
+                  "const resultados = Array.isArray(registros?.body) ? registros.body : [];",
+                  "const registroRuim = resultados.findIndex((r) => r && r.success === false && (r.errors || []).some((e) => !sintoma(e)));",
                   "const falhas = partes.filter((p) => p.httpStatusCode >= 400);",
+                  "if (registroRuim >= 0) falhas.push(registros);",
                   "",
-                  "if (falhas.length) {",
-                  "  const raiz = falhas.find((p) => {",
-                  "    const corpo = Array.isArray(p.body) ? p.body[0] : p.body;",
-                  "    const cod = corpo?.errorCode || '';",
-                  "    const msg = corpo?.message || '';",
-                  "    return !SINTOMAS.includes(cod) && !msg.includes('referenced operation');",
-                  "  });",
+                  "if (registroRuim >= 0) {",
+                  "  console.error('falha RAIZ: registros[' + registroRuim + '] ' + JSON.stringify(resultados[registroRuim].errors));",
+                  "} else if (falhas.length) {",
+                  "  const raiz = falhas.find((p) => !sintoma(Array.isArray(p.body) ? p.body[0] : p.body));",
                   "  console.error('falha RAIZ: ' + JSON.stringify((raiz || falhas[0]).body));",
                   "} else {",
                   "  const criado = partes.find((p) => p.referenceId === 'registroCriado');",
                   "  const pai = partes[0];",
                   "  if (pai?.body?.id) guardar('submissionId', pai.body.id); // consultado pela pasta 07",
-                  "  console.log('Caso ' + (criado?.body?.CaseNumber || '?') + ' criado com ' + (partes.length - 2) + ' item(ns).');",
+                  "  console.log('Caso ' + (criado?.body?.CaseNumber || '?') + ' criado com ' + resultados.length + ' item(ns): ' + resultados.map((r) => r.id).join(', '));",
                   "}",
                   "",
                   "pm.test('nenhuma subrequisição falhou', () => pm.expect(falhas.length).to.eql(0));"
@@ -568,7 +572,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"allOrNone\": true,\n  \"compositeRequest\": [\n    {\n      \"referenceId\": \"refPai\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}\",\n      \"body\": {\n        \"RelatedContractId__c\": \"ctr_8821\",\n        \"SI_RequesterType__c\": \"Proprietario\",\n        \"SI_ContractStatus__c\": \"Ativo\",\n        \"SI_Email__c\": \"teste.demo@exemplo.com.br\",\n        \"SI_FullName__c\": \"Maria Teste da Silva\",\n        \"SI_OwnerDocument__c\": \"000.000.000-00\",\n        \"SI_AccountHolder__c\": \"MesmaTitularidade\",\n        \"SI_BankType__c\": \"BancoDigital\",\n        \"SI_BankBranch__c\": \"0001\",\n        \"SI_BankAccount__c\": \"123456-7\",\n        \"SI_DocumentType__c\": \"CNH\"\n      }\n    },\n    {\n      \"referenceId\": \"item1\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/CaseMember__c\",\n      \"body\": {\n        \"Name\": \"João Souza\",\n        \"ExternalId__c\": \"12345678901\",\n        \"Type__c\": \"Landlord\",\n        \"MemberSource__c\": \"Cognito\",\n        \"Case__c\": \"@{refPai.id}\"\n      }\n    },\n    {\n      \"referenceId\": \"registroCriado\",\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}/@{refPai.id}?fields=Id,CaseNumber,Status,CreatedDate\"\n    }\n  ]\n}"
+              "raw": "{\n  \"allOrNone\": true,\n  \"compositeRequest\": [\n    {\n      \"referenceId\": \"refPai\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}\",\n      \"body\": {\n        \"RelatedContractId__c\": \"ctr_8821\",\n        \"SI_RequesterType__c\": \"Proprietario\",\n        \"SI_ContractStatus__c\": \"Ativo\",\n        \"SI_Email__c\": \"teste.demo@exemplo.com.br\",\n        \"SI_FullName__c\": \"Maria Teste da Silva\",\n        \"SI_OwnerDocument__c\": \"000.000.000-00\",\n        \"SI_AccountHolder__c\": \"MesmaTitularidade\",\n        \"SI_BankType__c\": \"BancoDigital\",\n        \"SI_BankBranch__c\": \"0001\",\n        \"SI_BankAccount__c\": \"123456-7\",\n        \"SI_DocumentType__c\": \"CNH\"\n      }\n    },\n    {\n      \"referenceId\": \"registros\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/composite/sobjects\",\n      \"body\": {\n        \"allOrNone\": true,\n        \"records\": [\n          {\n            \"attributes\": {\n              \"type\": \"CaseMember__c\"\n            },\n            \"Name\": \"João Souza\",\n            \"ExternalId__c\": \"12345678901\",\n            \"Type__c\": \"Landlord\",\n            \"MemberSource__c\": \"Cognito\",\n            \"Case__c\": \"@{refPai.id}\"\n          }\n        ]\n      }\n    },\n    {\n      \"referenceId\": \"registroCriado\",\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}/@{refPai.id}?fields=Id,CaseNumber,Status,CreatedDate\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/composite",
@@ -582,7 +586,7 @@
                 "composite"
               ]
             },
-            "description": "O `referenceId` da primeira subrequisição vira `@{refPai.id}` nas seguintes, resolvido **dentro da transação**.\n\n### Por que `allOrNone: true`\n\nUm Caso sem os registros que o justificam é pior que erro nenhum: a pessoa reenviaria e criaria um Caso duplicado, e a operação receberia dois pedidos para a mesma coisa — um deles silenciosamente incompleto.\n\n### `Type__c` e `MemberSource__c`\n\nSão campos **ocultos** na definição do formulário, com valor padrão. Não aparecem na tela; o valor da definição vence o que vier do cliente.\n\n### Ler o erro certo\n\nO script de teste implementa a busca pela falha **raiz**. Sem isso, um filho inválido faz o pai reportar `PROCESSING_HALTED` e o log aponta para o lugar errado.\n\n> `CaseMember__c.Email__c` é campo **fórmula** (`Account__r.PersonContact.Email`). Escrever nele devolve `INVALID_FIELD_FOR_INSERT_UPDATE`."
+            "description": "O `referenceId` da primeira subrequisição vira `@{refPai.id}` nas seguintes, resolvido **dentro da transação**.\n\n### Por que `allOrNone: true`\n\nUm Caso sem os registros que o justificam é pior que erro nenhum: a pessoa reenviaria e criaria um Caso duplicado, e a operação receberia dois pedidos para a mesma coisa — um deles silenciosamente incompleto.\n\n### `Type__c` e `MemberSource__c`\n\nSão campos **ocultos** na definição do formulário, com valor padrão. Não aparecem na tela; o valor da definição vence o que vier do cliente.\n\n### Ler o erro certo\n\nO script de teste implementa a busca pela falha **raiz**. Sem isso, um filho inválido faz o pai reportar `PROCESSING_HALTED` e o log aponta para o lugar errado.\n\n> `CaseMember__c.Email__c` é campo **fórmula** (`Account__r.PersonContact.Email`). Escrever nele devolve `INVALID_FIELD_FOR_INSERT_UPDATE`.\n\n### Uma chamada só para todos os itens\n\nCom `allOrNone: true` na coleção, um item inválido faz a subrequisição falhar, e o `allOrNone: true` do composite desfaz o envio junto (testado numa scratch: o pai volta `PROCESSING_HALTED` e nada fica gravado). A coleção responde **200** mesmo assim: o erro está no array, na posição do item ruim; as outras posições trazem `ALL_OR_NONE_OPERATION_ROLLED_BACK`. O Id de cada item sai de `@{registros[N].id}`, na ordem do array — é assim que os anexos de um item acham o registro dele."
           }
         }
       ]
@@ -2467,7 +2471,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"allOrNone\": true,\n  \"compositeRequest\": [\n    {\n      \"referenceId\": \"refPai\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}\",\n      \"body\": {\n        \"{{versionFieldApiName}}\": \"{{versionKey}}\"\n      }\n    },\n    {\n      \"referenceId\": \"casoGerado\",\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT+Id,CaseNumber+FROM+Case+WHERE+RelatedCaseFormSubmission__c='@{refPai.id}'+LIMIT+1\"\n    },\n    {\n      \"referenceId\": \"item1\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{itemObject}}\",\n      \"body\": {\n        \"RecordTypeId\": \"{{itemRecordTypeId}}\",\n        \"ExpenseMonth__c\": \"3\",\n        \"ExpenseYear__c\": \"2026\",\n        \"{{itemListField}}\": \"{{listaId}}\",\n        \"{{itemCaseField}}\": \"@{casoGerado.records[0].Id}\"\n      }\n    },\n    {\n      \"referenceId\": \"registroCriado\",\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}/@{refPai.id}?fields=Id,Name,CreatedDate\"\n    }\n  ]\n}"
+              "raw": "{\n  \"allOrNone\": true,\n  \"compositeRequest\": [\n    {\n      \"referenceId\": \"refPai\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}\",\n      \"body\": {\n        \"{{versionFieldApiName}}\": \"{{versionKey}}\"\n      }\n    },\n    {\n      \"referenceId\": \"casoGerado\",\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/query?q=SELECT+Id,CaseNumber+FROM+Case+WHERE+RelatedCaseFormSubmission__c='@{refPai.id}'+LIMIT+1\"\n    },\n    {\n      \"referenceId\": \"registros\",\n      \"method\": \"POST\",\n      \"url\": \"/services/data/v{{apiVersion}}/composite/sobjects\",\n      \"body\": {\n        \"allOrNone\": true,\n        \"records\": [\n          {\n            \"attributes\": {\n              \"type\": \"{{itemObject}}\"\n            },\n            \"RecordTypeId\": \"{{itemRecordTypeId}}\",\n            \"ExpenseMonth__c\": \"3\",\n            \"ExpenseYear__c\": \"2026\",\n            \"{{itemListField}}\": \"{{listaId}}\",\n            \"{{itemCaseField}}\": \"@{casoGerado.records[0].Id}\"\n          }\n        ]\n      }\n    },\n    {\n      \"referenceId\": \"registroCriado\",\n      \"method\": \"GET\",\n      \"url\": \"/services/data/v{{apiVersion}}/sobjects/{{objectApiName}}/@{refPai.id}?fields=Id,Name,CreatedDate\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{instanceUrl}}/services/data/v{{apiVersion}}/composite",
@@ -2481,7 +2485,7 @@
                 "composite"
               ]
             },
-            "description": "Uma transação (`allOrNone: true`), na ordem:\n\n1. `refPai` — o registro do formulário, com a chave da versão no campo da versão (passo 0). Acrescente as respostas do formulário.\n2. `casoGerado` — o Caso que o trigger do envio criou. Itens se ligam ao Caso, não ao registro.\n3. `item1..N` — um POST por item preenchido, com:\n   - `RecordTypeId` — o Id do passo 4;\n   - `ChildCaseFieldApiName__c` (hoje `Case__c`) — o Id do Caso; o trigger do item preenche o vínculo com o envio a partir dele;\n   - `ChildListFieldApiName__c` (hoje `FormList__c`) — o Id da lista; o trigger aplica o Record Type e os valores padrão dela;\n   - as respostas do item, pelos `FieldApiName__c` do passo 2.\n\nOs campos do item do exemplo são os da lista \"Despesas\" do FormTest (forno, `formId` = `a1Tbe0000021YRVEA2`). Troque pelos da sua lista.\n\n**Isto cria registros de verdade na org da environment.**"
+            "description": "Uma transação (`allOrNone: true`), na ordem:\n\n1. `refPai` — o registro do formulário, com a chave da versão no campo da versão (passo 0). Acrescente as respostas do formulário.\n2. `casoGerado` — o Caso que o trigger do envio criou. Itens se ligam ao Caso, não ao registro.\n3. `registros` — **uma** chamada `composite/sobjects` com todos os itens preenchidos (até 200 registros, cada um com `attributes.type`). Cada item leva:\n   - `RecordTypeId` — o Id do passo 4;\n   - `ChildCaseFieldApiName__c` (hoje `Case__c`) — o Id do Caso; o trigger do item preenche o vínculo com o envio a partir dele;\n   - `ChildListFieldApiName__c` (hoje `FormList__c`) — o Id da lista; o trigger aplica o Record Type e os valores padrão dela;\n   - as respostas do item, pelos `FieldApiName__c` do passo 2.\n\nOs campos do item do exemplo são os da lista \"Despesas\" do FormTest (forno, `formId` = `a1Tbe0000021YRVEA2`). Troque pelos da sua lista.\n\n### Uma chamada só para todos os itens\n\nCom `allOrNone: true` na coleção, um item inválido faz a subrequisição falhar, e o `allOrNone: true` do composite desfaz o envio junto (testado numa scratch: o pai volta `PROCESSING_HALTED` e nada fica gravado). A coleção responde **200** mesmo assim: o erro está no array, na posição do item ruim; as outras posições trazem `ALL_OR_NONE_OPERATION_ROLLED_BACK`. O Id de cada item sai de `@{registros[N].id}`, na ordem do array — é assim que os anexos de um item acham o registro dele.\n\n**Isto cria registros de verdade na org da environment.**"
           },
           "event": [
             {
@@ -2496,23 +2500,31 @@
                   "pm.test('200', () => pm.response.to.have.status(200));",
                   "const partes = pm.response.json().compositeResponse || [];",
                   "",
-                  "// O erro que o composite exibe quase nunca é o erro: o pai falhar faz os filhos",
-                  "// reportarem 'Could not find the referenced operation', e um filho falhar faz o",
-                  "// pai reportar PROCESSING_HALTED. A causa é a subrequisição que não é nenhum dos dois.",
+                  "// O erro que o composite exibe quase nunca é o erro.",
+                  "// Pai falhou  -> cada filho reporta 'Could not find the referenced operation'.",
+                  "// Filho falhou -> o pai reporta PROCESSING_HALTED.",
+                  "// A coleção 'registros' volta 200 mesmo quando um registro falha: cada posição",
+                  "// traz success/errors, e as que não falharam reportam ALL_OR_NONE_OPERATION_ROLLED_BACK.",
+                  "// Tudo isso é SINTOMA. A causa é o que não é nenhum desses.",
+                  "const SINTOMAS = ['PROCESSING_HALTED', 'ALL_OR_NONE_OPERATION_ROLLED_BACK'];",
+                  "const sintoma = (e) => SINTOMAS.includes(e?.errorCode || e?.statusCode || '') || (e?.message || '').includes('referenced operation');",
+                  "const registros = partes.find((p) => p.referenceId === 'registros');",
+                  "const resultados = Array.isArray(registros?.body) ? registros.body : [];",
+                  "const registroRuim = resultados.findIndex((r) => r && r.success === false && (r.errors || []).some((e) => !sintoma(e)));",
                   "const falhas = partes.filter((p) => p.httpStatusCode >= 400);",
-                  "if (falhas.length) {",
-                  "  const raiz = falhas.find((p) => {",
-                  "    const corpo = Array.isArray(p.body) ? p.body[0] : p.body;",
-                  "    return (corpo?.errorCode || '') !== 'PROCESSING_HALTED' && !(corpo?.message || '').includes('referenced operation');",
-                  "  });",
+                  "if (registroRuim >= 0) falhas.push(registros);",
+                  "",
+                  "if (registroRuim >= 0) {",
+                  "  console.error('falha RAIZ: registros[' + registroRuim + '] ' + JSON.stringify(resultados[registroRuim].errors));",
+                  "} else if (falhas.length) {",
+                  "  const raiz = falhas.find((p) => !sintoma(Array.isArray(p.body) ? p.body[0] : p.body));",
                   "  console.error('falha RAIZ: ' + JSON.stringify((raiz || falhas[0]).body));",
                   "  if (JSON.stringify(raiz?.body || '').includes('casoGerado')) console.error('O envio não gerou Caso: confira a chave da versão e o caso auxiliar do formulário.');",
                   "} else {",
                   "  const pai = partes.find((p) => p.referenceId === 'refPai');",
                   "  const caso = partes.find((p) => p.referenceId === 'casoGerado');",
-                  "  const itens = partes.filter((p) => /^item\\d+$/.test(p.referenceId));",
                   "  if (pai?.body?.id) guardar('submissionId', pai.body.id);",
-                  "  console.log('Caso ' + (caso?.body?.records?.[0]?.CaseNumber || '?') + ' com ' + itens.length + ' item(ns): ' + itens.map((i) => i.body.id).join(', '));",
+                  "  console.log('Caso ' + (caso?.body?.records?.[0]?.CaseNumber || '?') + ' com ' + resultados.length + ' item(ns): ' + resultados.map((r) => r.id).join(', '));",
                   "}",
                   "pm.test('nenhuma subrequisição falhou', () => pm.expect(falhas.length).to.eql(0));"
                 ]

@@ -252,21 +252,30 @@ const doisContratos = buildSubmitPayload(contratoMulti, {
 assert.equal(doisContratos.valid, true);
 assert.equal(doisContratos.vinculos.length, 4, 'linha vazia não vira vínculo');
 const subs = doisContratos.request.body.compositeRequest;
-assert.deepEqual(
-  subs.map((s) => s.referenceId),
-  ['refPai', 'casoGerado', 'vinculo1', 'vinculo2', 'vinculo3', 'vinculo4']
-);
+assert.deepEqual(subs.map((s) => s.referenceId), ['refPai', 'casoGerado', 'registros']);
 assert.match(subs[1].url, /WHERE\+RelatedCaseFormSubmission__c='@\{refPai\.id\}'/, 'GET do Caso pelo envio');
 assert.equal(subs.filter((s) => s.method === 'GET').length, 1, 'uma consulta do Caso para todos os vínculos');
-// Um POST por escolha, cada um no objeto e nos campos do SEU componente.
-assert.ok(subs.slice(2).every((s) => s.method === 'POST' && !s.url.includes('composite/sobjects')));
-assert.match(subs[2].url, /\/sobjects\/CaseContract__c$/);
-assert.deepEqual(subs[2].body, { RelatedContractExternalId__c: 'ctr_1', Case__c: '@{casoGerado.records[0].Id}' });
-assert.equal(subs[3].body.RelatedContractExternalId__c, 'ctr_2');
-assert.match(subs[4].url, /\/sobjects\/CaseProperty__c$/);
-assert.deepEqual(subs[4].body, { PropertyExternalId__c: 'imv_7', RelatedCase__c: '@{casoGerado.records[0].Id}' });
-assert.match(subs[5].url, /\/sobjects\/CaseContract__c$/);
-assert.deepEqual(subs[5].body, { RelatedContractExternalId__c: 'ctr_9', Case__c: '@{casoGerado.records[0].Id}' });
+// Uma coleção só, com cada escolha no objeto e nos campos do SEU componente.
+assert.match(subs[2].url, /\/composite\/sobjects$/);
+assert.equal(subs[2].body.allOrNone, true);
+const recs = subs[2].body.records;
+assert.equal(recs.length, 4);
+assert.deepEqual(recs[0], {
+  attributes: { type: 'CaseContract__c' },
+  RelatedContractExternalId__c: 'ctr_1',
+  Case__c: '@{casoGerado.records[0].Id}',
+});
+assert.equal(recs[1].RelatedContractExternalId__c, 'ctr_2');
+assert.deepEqual(recs[2], {
+  attributes: { type: 'CaseProperty__c' },
+  PropertyExternalId__c: 'imv_7',
+  RelatedCase__c: '@{casoGerado.records[0].Id}',
+});
+assert.deepEqual(recs[3], {
+  attributes: { type: 'CaseContract__c' },
+  RelatedContractExternalId__c: 'ctr_9',
+  Case__c: '@{casoGerado.records[0].Id}',
+});
 assert.equal(subs[0].body[chave], undefined, 'nada da referência múltipla no registro do formulário');
 assert.equal(subs[0].body.RelatedContractExternalId__c, undefined, 'FieldApiName__c da multi não é campo do formulário');
 line('  dois contratos  → composite:');
@@ -289,14 +298,14 @@ const linhasLista = [
     TargetRecordTypeDevName__c: 'BankDataChange',
   },
   {
-    // Campo texto com opções: "a,b,c", como o FormDefinitionController grava.
+    // Campo texto com opções: "a;b;c", como o FormDefinitionController grava.
     Id: 'a1Xbe000000CHOI1',
     Name: 'Motivo',
     RecordType: { DeveloperName: 'Field' },
     Form__c: FORM_LISTA,
     Sort__c: 10,
     FieldApiName__c: 'Reason__c',
-    Choices__c: 'Adicionar pessoa, Despesas condominio,,Outro',
+    Choices__c: 'Adicionar pessoa; Despesas condominio;;Outro',
     IsRequired__c: true,
   },
   {
@@ -352,7 +361,7 @@ assert.equal(motivo.dataType, 'Picklist', 'texto com Choices__c vira lista de es
 assert.deepEqual(
   motivo.options.map((o) => o.value),
   ['Adicionar pessoa', 'Despesas condominio', 'Outro'],
-  'dividido na vírgula, sem espaço nas pontas e sem vazio'
+  'dividido no ponto e vírgula, sem espaço nas pontas e sem vazio'
 );
 line(`  Choices__c      : ${motivo.apiName} → ${motivo.options.map((o) => o.value).join(' | ')}`);
 
@@ -363,10 +372,12 @@ const comLista = buildSubmitPayload(contratoLista, {
 assert.equal(comLista.valid, true, comLista.missing.join(', '));
 assert.equal(comLista.listas.length, 1, 'item só com valor padrão não vira registro');
 const subsLista = comLista.request.body.compositeRequest;
-assert.deepEqual(subsLista.map((s) => s.referenceId), ['refPai', 'casoGerado', 'item1']);
+assert.deepEqual(subsLista.map((s) => s.referenceId), ['refPai', 'casoGerado', 'registros']);
 assert.equal(subsLista[0].body.Reason__c, 'Outro', 'a escolha vai como texto no campo');
-assert.match(subsLista[2].url, /\/sobjects\/CaseFormSubmissionItem__c$/);
-assert.deepEqual(subsLista[2].body, {
+assert.match(subsLista[2].url, /\/composite\/sobjects$/);
+assert.equal(subsLista[2].body.records.length, 1);
+assert.deepEqual(subsLista[2].body.records[0], {
+  attributes: { type: 'CaseFormSubmissionItem__c' },
   RecordTypeId: '012be000000RTPP',
   Name__c: 'Maria',
   Role__c: 'Titular',

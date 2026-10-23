@@ -108,10 +108,10 @@ const CAMPOS = `Id, Name, RecordType.DeveloperName, Form__c, Parent__c, Sort__c,
   MappingType__c, TargetFieldApiName__c,
   ReferenceType__c, ReferenceObjectApiName__c, ExternalIdFieldApiName__c`.replace(/\s+/g, ' ');
 
-/** Choices__c é salvo como "a,b,c"; o Salesforce já normaliza (trim, sem repetidos). */
+/** Choices__c é salvo como "a;b;c"; o Salesforce já normaliza (trim, sem repetidos). */
 const splitChoices = (raw) =>
   String(raw ?? '')
-    .split(',')
+    .split(';')
     .map((v) => v.trim())
     .filter(Boolean);
 
@@ -644,7 +644,7 @@ export function specToContract(
       campo = applyEntityParticle(campo, ctx.indiceDeCampos, ctx.controladorDe);
       if (ctx.picklists) campo = applyPicklistValues(campo, ctx.picklists);
 
-      // Escolhas cadastradas no Form Builder (Choices__c, "a,b,c") num campo
+      // Escolhas cadastradas no Form Builder (Choices__c, "a;b;c") num campo
       // de texto: o canal desenha como lista de opções, e o que vai pro
       // Salesforce continua sendo o texto escolhido.
       const escolhas = t === 'Field' ? splitChoices(r.Choices__c) : [];

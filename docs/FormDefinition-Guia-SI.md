@@ -236,7 +236,7 @@ Vincula uma pergunta a um campo real. Rótulo, tipo, tamanho e ajuda vêm do sch
 | Somente leitura | `IsReadOnly__c` | Checkbox | Front · Submit | Renderizado, não editável, **não enviado**. |
 | Oculto no formulário | `IsHidden__c` | Checkbox | Front · Submit | Não renderizado, mas enviado com `DefaultValue__c`. |
 | Largura | `Width__c` | Picklist: FULL, HALF, THIRD | Front | Largura na linha. |
-| Opções | `Choices__c` | LongTextArea | Front | Só para campo **texto** (`STRING`). Opções separadas por **vírgula**, ex. `Adicionar pessoa,Despesas condominio` (o Salesforce já grava sem espaços nas pontas e sem repetidas). Preenchido: o front divide na vírgula e desenha uma lista de escolha (select) no lugar do input; o que vai no submit continua sendo o **texto** escolhido, no `FieldApiName__c`. Vazio: campo de texto livre. |
+| Opções | `Choices__c` | LongTextArea | Front | Só para campo **texto** (`STRING`). Opções separadas por **ponto e vírgula** (`;`), ex. `Adicionar pessoa;Despesas condominio` (o Salesforce já grava sem espaços nas pontas e sem repetidas). Preenchido: o front divide no `;` e desenha uma lista de escolha (select) no lugar do input; o que vai no submit continua sendo o **texto** escolhido, no `FieldApiName__c`. Vazio: campo de texto livre. |
 | Lógica dos filtros / Lógica de filtro | `FilterLogicType__c`, `FilterLogic__c` | Picklist, Text | Front | Como as regras `SHOW` filhas se combinam. |
 | Lógica da obrigatoriedade | `RequiredLogicType__c` | Picklist: ALL, ANY | Front | Como as regras `REQUIRE` filhas se combinam. |
 | Lógica da validação | `ValidationLogicType__c` | Picklist: ALL, ANY | Front | Como as regras `BLOCK` filhas se combinam. |
@@ -442,7 +442,7 @@ O destino é **do componente**: cada linha `MultiReference` diz que objeto criar
 | Rótulo | API Name | Quem lê | Descrição | Vem de (`FormBuilderAllowlist__mdt`) |
 | :-- | :-- | :-- | :-- | :-- |
 | Entidade | `ReferenceType__c` | Front | Qual entrada `MultiReference` do allowlist o componente usa. | `ApiName__c` da entrada |
-| Objeto criado por escolha | `ChildObjectApiName__c` | Submit | Objeto do `POST` de cada escolha, ex. `CaseContract__c`. | `ApiName__c` |
+| Objeto criado por escolha | `ChildObjectApiName__c` | Submit | Objeto do registro criado para cada escolha (o `attributes.type` dele na coleção), ex. `CaseContract__c`. | `ApiName__c` |
 | Campo do Caso | `ChildCaseFieldApiName__c` | Submit | Lookup nesse objeto que recebe o **Id do caso gerado**, ex. `Case__c`. | `CaseLookupApiName__c` |
 | Campo da escolha | `FieldApiName__c` | Submit | Campo **texto** nesse objeto que recebe o id externo escolhido, ex. `RelatedContractExternalId__c`. **Não** é campo do objeto do formulário. | `SourceFieldApiName__c` |
 | Objeto escolhido | `ReferenceObjectApiName__c` | Front | Onde o seletor procura, ex. `Contract`. | `ReferenceObjectApiName__c` |
@@ -515,27 +515,12 @@ POST /services/data/v66.0/sobjects/CaseSI__c
 }
 ```
 
-Com lista repetível, uma transação (`allOrNone: true`): o registro, a consulta do caso gerado e **um `POST` por item**. Cada item leva o que a linha `RepeatingSection` manda: o `RecordTypeId` do `ChildRecordTypeDevName__c`, o Id do caso em `ChildCaseFieldApiName__c` e o Id da própria linha `RepeatingSection` em `ChildListFieldApiName__c`. Item sem nada digitado (só valores padrão) não é enviado.
+Itens de lista e escolhas de referência múltipla vão juntos, numa transação (`allOrNone: true`): o registro, a consulta do caso gerado e **uma única chamada `composite/sobjects`** com todos os registros — até 200, de objetos diferentes, cada um com o seu `attributes.type`, os itens de lista primeiro.
 
-```http
-POST /services/data/v66.0/composite
-{
-  "allOrNone": true,
-  "compositeRequest": [
-    { "referenceId": "createSubmission", "method": "POST", "url": "/services/data/v66.0/sobjects/CaseFormSubmission__c",
-      "body": { "FormVersion__c": "bank_data_change_full#3", "RequesterType__c": "Proprietario", "...": "..." } },
-    { "referenceId": "getCase", "method": "GET",
-      "url": "/services/data/v66.0/query?q=SELECT+Id+FROM+Case+WHERE+RelatedCaseFormSubmission__c='@{createSubmission.id}'+LIMIT+1" },
-    { "referenceId": "item1", "method": "POST", "url": "/services/data/v66.0/sobjects/CaseMember__c",
-      "body": { "RecordTypeId": "<Id do RT de ChildRecordTypeDevName__c>", "Name": "Maria",
-                "FormList__c": "a0u88000004XaxFAAS", "Case__c": "@{getCase.records[0].Id}" } }
-  ]
-}
-```
+- **Item de lista:** o que a linha `RepeatingSection` manda — o `RecordTypeId` do `ChildRecordTypeDevName__c`, o Id do caso em `ChildCaseFieldApiName__c` e o Id da própria linha `RepeatingSection` em `ChildListFieldApiName__c`. Item sem nada digitado (só valores padrão) não é enviado.
+- **Escolha de `MultiReference`:** um registro do `ChildObjectApiName__c` **do seu componente**, com o Id do caso em `ChildCaseFieldApiName__c` e o id externo em `FieldApiName__c`.
 
-Lista do modelo antigo (sem `ChildCaseFieldApiName__c`): sem a consulta do caso, e o item aponta para o registro por `ChildRelationshipField__c` (`"Case__c": "@{createSubmission.id}"`). Formulário em `Case`: o caso é o próprio registro, então `ChildCaseFieldApiName__c` recebe `@{createSubmission.id}` e a consulta não é feita.
-
-Com `MultiReference`: depois do registro, uma consulta acha o caso gerado (a mesma dos itens de lista, feita uma vez só) e cada escolha vira um `POST` do `ChildObjectApiName__c` **do seu componente**, com o Id do caso em `ChildCaseFieldApiName__c` e o id externo em `FieldApiName__c`. O caso nasce no trigger do envio, na mesma transação, então a consulta já o encontra. No exemplo, o componente usa a entrada `CaseContract__c`:
+O caso nasce no trigger do envio, na mesma transação, então a consulta logo depois do envio já o encontra. No exemplo, uma lista de `CaseFormSubmissionItem__c` e um componente com a entrada `CaseContract__c`:
 
 ```http
 POST /services/data/v66.0/composite
@@ -546,17 +531,24 @@ POST /services/data/v66.0/composite
       "body": { "FormVersion__c": "owner_bank_data_change#12", "...": "..." } },
     { "referenceId": "getCase", "method": "GET",
       "url": "/services/data/v66.0/query?q=SELECT+Id+FROM+Case+WHERE+RelatedCaseFormSubmission__c='@{createSubmission.id}'+LIMIT+1" },
-    { "referenceId": "caseContract1", "method": "POST", "url": "/services/data/v66.0/sobjects/CaseContract__c",
-      "body": { "Case__c": "@{getCase.records[0].Id}", "RelatedContractExternalId__c": "ctr_8821" } },
-    { "referenceId": "caseContract2", "method": "POST", "url": "/services/data/v66.0/sobjects/CaseContract__c",
-      "body": { "Case__c": "@{getCase.records[0].Id}", "RelatedContractExternalId__c": "ctr_9034" } }
+    { "referenceId": "registros", "method": "POST", "url": "/services/data/v66.0/composite/sobjects",
+      "body": { "allOrNone": true, "records": [
+        { "attributes": { "type": "CaseFormSubmissionItem__c" }, "RecordTypeId": "<Id do RT de ChildRecordTypeDevName__c>",
+          "Name__c": "Maria", "FormList__c": "a0u88000004XaxFAAS", "Case__c": "@{getCase.records[0].Id}" },
+        { "attributes": { "type": "CaseContract__c" }, "Case__c": "@{getCase.records[0].Id}", "RelatedContractExternalId__c": "ctr_8821" },
+        { "attributes": { "type": "CaseContract__c" }, "Case__c": "@{getCase.records[0].Id}", "RelatedContractExternalId__c": "ctr_9034" }
+      ] } }
   ]
 }
 ```
 
-- **Um `POST` por escolha** (e por item de lista), não `composite/sobjects` com a lista. A coleção reporta a falha de cada registro dentro de uma resposta 200, e o `allOrNone` de fora decide pelo status da subrequisição. Com um `POST` por registro, uma falha desfaz o envio inteiro.
+Lista do modelo antigo (sem `ChildCaseFieldApiName__c`): o item aponta para o registro por `ChildRelationshipField__c` (`"Case__c": "@{createSubmission.id}"`) e, sem multi referência, a consulta do caso não é feita. Formulário em `Case`: o caso é o próprio registro, então os campos do caso recebem `@{createSubmission.id}` e a consulta não é feita.
+
+- **`allOrNone: true` na coleção também.** Um registro que falha derruba a transação inteira, envio incluído: os outros registros voltam `ALL_OR_NONE_OPERATION_ROLLED_BACK` e o envio volta `PROCESSING_HALTED` (conferido numa scratch: nada fica gravado). Para achar a causa, procure o registro da resposta com outro erro.
+- **A resposta é um array na ordem dos registros** (`[{ "id", "success", "errors" }]`). O Id do registro N é `@{registros[N].id}` — é assim que os anexos de um item de lista vão para o registro do item.
+- **Sem repetidos** numa referência múltipla: cada registro vira um vínculo.
+- **Limite de 200 registros** na coleção e de 25 subrequisições no composite.
 - **Referência crua na URL.** `@{createSubmission.id}` vai sem encode; encodada, a consulta devolve 200 com zero registros.
-- **Limite do composite: 25 subrequisições.** Conte o envio, a consulta do caso, as escolhas das referências múltiplas e os itens de lista.
 - **Formulário em `Case`:** sem a consulta, o `ChildCaseFieldApiName__c` recebe `@{createSubmission.id}`.
 
 ## 13. Depois do submit: o SLA do caso gerado
